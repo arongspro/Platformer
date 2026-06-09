@@ -936,7 +936,17 @@ function updateGame() {
   });
 
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
-  moveblocks.forEach(mb => { if (mb.allowed(player)) { mb.check(player); } }); // 위치는 서버에서 관리
+  // 위치는 서버에서 관리, 충돌+플레이어 밀기는 클라이언트 담당
+  moveblocks.forEach(mb => {
+    if (!mb.allowed(player)) return;
+    const prevX = mb.x;
+    const prevY = mb.y;
+    mb.check(player);
+    // am=true 블록: 플레이어가 올라서 있으면 블록 이동량만큼 플레이어도 밀기
+    if (mb.touch) {
+      player.x += mb.x - prevX;
+    }
+  });
 
   for (let i=particles.length-1; i>=0; i--) {
     if (particles[i].isDead()) {
