@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Platformer Game</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+  canvas { display: block; image-rendering: pixelated; }
+  #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="640" height="480"></canvas>
+<script>
+// ===================== CANVAS SETUP =====================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Scale canvas to fit window
+function resize() {
+  const scale = Math.min(window.innerWidth / 640, window.innerHeight / 480);
+  canvas.style.width = (640 * scale) + 'px';
+  canvas.style.height = (480 * scale) + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ===================== INPUT =====================
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; e.preventDefault(); });
+window.addEventListener('keyup',   e => { keys[e.code] = false; });
+
+function keyPressed(k) {
+  if (k === 'left')  return keys['KeyA'] || keys['ArrowLeft'];
+  if (k === 'right') return keys['KeyD'] || keys['ArrowRight'];
+  if (k === 'jump')  return keys['KeyW'] || keys['Space'] || keys['ArrowUp'];
+}
+
+// ===================== SPRITE GENERATION =====================
+// Generate block & spike images procedurally (no external files needed)
+function makeBlockCanvas() {
+  const c = document.createElement('canvas'); c.width = 50; c.height = 50;
+  const x = c.getContext('2d');
+  x.fillStyle = '#555'; x.fillRect(0,0,50,50);
+  x.strokeStyle = '#888'; x.lineWidth = 3; x.strokeRect(2,2,46,46);
+  x.fillStyle = '#666';
+  x.fillRect(4,4,20,20); x.fillRect(26,26,20,20);
+  x.fillStyle = '#444';
+  x.fillRect(26,4,20,20); x.fillRect(4,26,20,20);
+  return c;
+}
+function makeSpikeCanvas() {
+  const c = document.createElement('canvas'); c.width = 50; c.height = 50;
+  const x = c.getContext('2d');
+  x.fillStyle = '#c00';
+  x.beginPath(); x.moveTo(25,5); x.lineTo(45,45); x.lineTo(5,45); x.closePath(); x.fill();
+  x.strokeStyle = '#f44'; x.lineWidth = 2; x.stroke();
+  return c;
+}
+const blockImg  = makeBlockCanvas();
+const spikeImg  = makeSpikeCanvas();
+
+// ===================== PARTICLES =====================
+let jumpParticleNumber = 0;
+
+class Particle {
+  constructor(x, y, dx, dy, r, g, b, gravity = 0.01, size = 0) {
+    this.x = x; this.y = y;
+    this.alpha = 1;
+    this.dx = dx; this.dy = dy;
+    this.r = r; this.g = g; this.b = b;
+    this.gravity = gravity;
+    this.size = size;
+  }
+  move() {
+    this.alpha -= this.gravity;
+    this.x += this.dx; this.y += this.dy;
+    this.dy += this.gravity;
+    this.dx *= 0.95;
+  }
+  isDead() { return this.alpha <= 0; }
+  draw(scrollx, scrolly) {
+    if (this.alpha <= 0) return;
+    const sx = this.x - scrollx;
+    const sy = this.y - scrolly;
+    const sz = Math.sqrt(1 - this.alpha + this.size) * 10;
+    ctx.save();
+    ctx.globalAlpha = Math.sqrt(this.alpha);
+    ctx.fillStyle = `rgb(${this.r},${this.g},${this.b})`;
+    ctx.fillRect(sx, sy, sz, sz);
+    ctx.restore();
+  }
+}
+
+function randInt(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
+function randFloat(a, b) { return Math.random() * (b - a) + a; }
+
+// ===================== GAME OBJECTS =====================
+class Blocks {
+  constructor(x, y) { this.x = x; this.y = y; }
+  draw(p) {
+    const sx = this.x - p.scrollx, sy = this.y - p.scrolly;
+    ctx.drawImage(blockImg, sx, sy, 50, 50);
+  }
+  check(player) {
+    const {x1,y1,x2,y2,px1,px2,py1,py2} = overlap(this, player);
+    if (px2>x1 && px1<x2 && py2>y1 && py1<y2) {
+      const left=px2-x1, right=x2-px1, top=py2-y1, bottom=y2-py1;
+      const min = Math.min(left,right,top,bottom);
+      if (min===top)   { if (player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
+      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
+      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
+      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+    }
+  }
+  allowed(p) { const sx=this.x-p.scrollx, sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
+}
+
+class Spike {
+  constructor(x, y) { this.x=x; this.y=y; this.died=false; this.frame=0; }
+  draw(p) {
+    const sx=this.x-p.scrollx, sy=this.y-p.scrolly;
+    ctx.drawImage(spikeImg, sx, sy, 50, 50);
+  }
+  check(player, bblock, particles) {
+    const x1=this.x+12.5, y1=this.y+12.5, x2=this.x+37.5, y2=this.y+37.5;
+    const px1=player.x-player.width/2, px2=player.x+player.width/2;
+    const py1=player.y-player.height/2, py2=player.y+player.height/2;
+    if (px2>x1&&px1<x2&&py2>y1&&py1<y2&&!player.died) {
+      this.frame=0; player.died=true; this.died=true;
+      for (let i=0;i<40;i++) particles.push(new Particle(this.x+25,this.y+25,randFloat(-5,5),randFloat(-3,1),randInt(200,255),randInt(200,255),randInt(200,255),0.003));
+      bblock.forEach(b => b.on=1);
+    }
+    if (this.died) {
+      this.frame++;
+      if (this.frame>60) { this.died=false; player.died=false; player.x=player.cpx; player.y=player.cpy; player.dy=0; }
+    }
+  }
+  allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
+}
+
+class Jump {
+  constructor(x, y) { this.x=x; this.y=y; }
+  draw(p) {
+    ctx.strokeStyle='#fff'; ctx.lineWidth=5;
+    ctx.strokeRect(this.x-p.scrollx, this.y-p.scrolly+40, 50, 10);
+  }
+  check(player, particles) {
+    const x1=this.x, y1=this.y+40, x2=this.x+50, y2=this.y+50;
+    const px1=player.x-player.width/2, px2=player.x+player.width/2;
+    const py1=player.y-player.height/2, py2=player.y+player.height/2;
+    if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
+      player.dy=15;
+      for (let i=0;i<10;i++) {
+        if (jumpParticleNumber<50) {
+          jumpParticleNumber++;
+          particles.push(new Particle(this.x+25,this.y+30,randFloat(-2,2),randFloat(-0.5,0.1),randInt(200,255),randInt(200,255),randInt(200,255),0.01,0.5));
+        } else break;
+      }
+    }
+  }
+  allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
+}
+
+class IBlock {
+  constructor(x, y, slip) { this.x=x; this.y=y; this.frame=0; this.slip=slip; }
+  draw(p) {
+    ctx.strokeStyle='#fff'; ctx.lineWidth=5;
+    ctx.strokeRect(this.x-p.scrollx, this.y-p.scrolly, 50, 50);
+  }
+  check(player) {
+    const {x1,y1,x2,y2,px1,px2,py1,py2} = overlap(this, player);
+    if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
+      const left=px2-x1+2, right=x2-px1+2, top=py2-y1, bottom=y2-py1;
+      const min=Math.min(left,right,top,bottom);
+      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.frame=0; } } else { this.frame++; }
+      if (min===left)  { player.x=x1-player.width/2;  if(min!==top) player.dx=0; }
+      if (min===right) { player.x=x2+player.width/2;  if(min!==top) player.dx=0; }
+      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+      if (this.frame<10) player.slip=this.slip;
+    }
+  }
+  allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
+}
+
+class DBlock {
+  constructor(x, y) { this.x=x; this.y=y; this.alpha=1; this.tick=0; this.de=false; }
+  draw(p) {
+    const color = Math.floor(this.alpha*255);
+    if (color>=0) {
+      ctx.strokeStyle=`rgb(${color},${color},${color})`; ctx.lineWidth=5;
+      ctx.strokeRect(this.x-p.scrollx, this.y-p.scrolly, 50, 50);
+    }
+  }
+  check(player) {
+    const {x1,y1,x2,y2,px1,px2,py1,py2}=overlap(this,player);
+    const c=px2>x1&&px1<x2&&py2>y1&&py1<y2;
+    if (c&&this.alpha>0) {
+      this.de=true;
+      const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
+      const min=Math.min(left,right,top,bottom);
+      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
+      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
+      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
+      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+    }
+    if (this.de&&this.alpha>0) { this.alpha-=0.02; this.tick++; }
+    else if (!c&&this.tick>0)  { this.de=false; this.tick-=0.5; }
+    else if (this.alpha<1&&!c) { this.alpha+=0.01; }
+  }
+  allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
+}
+
+class BBlock {
+  constructor(x, y, bx, by) { this.x=x; this.y=y; this.on=1; this.touch=false; this.bx=bx; this.by=by; }
+  draw(p) {
+    if (this.on===-1) {
+      ctx.strokeStyle='#f00'; ctx.lineWidth=5; ctx.strokeRect(this.x-p.scrollx,this.y-p.scrolly,50,50);
+    } else {
+      ctx.strokeStyle='#0f0'; ctx.lineWidth=5; ctx.strokeRect(this.x-p.scrollx,this.y-p.scrolly,50,50);
+      ctx.strokeStyle='#fff'; ctx.strokeRect(this.bx-p.scrollx,this.by-p.scrolly,50,50);
+    }
+  }
+  check(player) {
+    const {x1,y1,x2,y2,px1,px2,py1,py2}=overlap(this,player);
+    const c=px2>x1&&px1<x2&&py2>y1&&py1<y2;
+    if (c) {
+      const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
+      const min=Math.min(left,right,top,bottom);
+      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
+      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
+      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
+      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+      if (!this.touch) this.on*=-1;
+      this.touch=true;
+    } else { this.touch=false; }
+  }
+  checkBlock(player) {
+    const x1=this.bx,y1=this.by,x2=this.bx+50,y2=this.by+50;
+    const px1=player.x-player.width/2,px2=player.x+player.width/2;
+    const py1=player.y-player.height/2,py2=player.y+player.height/2;
+    if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
+      const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
+      const min=Math.min(left,right,top,bottom);
+      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
+      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
+      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
+      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+    }
+  }
+}
+
+class MBlock {
+  constructor(x,y,mx,my,ex,ey,player) {
+    this.x=x; this.y=y; this.mx=mx; this.my=my;
+    this.ex=ex; this.ey=ey; this.inx=x; this.iny=y;
+    this.touch=false; this.frame=0; this.am=player; this.movingWay=1;
+  }
+  draw(p) {
+    const sx=this.x-p.scrollx, sy=this.y-p.scrolly;
+    ctx.drawImage(blockImg, sx, sy, 50, 50);
+  }
+  move(player) {
+    if (this.touch) this.frame=0;
+    if (this.am) {
+      if (((this.frame<3&&this.my===0)||(this.touch&&this.mx===0))&&Math.abs(this.x-this.inx)<this.ex&&Math.abs(this.y-this.iny)<this.ey) {
+        this.x+=this.mx; this.y+=this.my; player.x+=this.mx;
+      } else if (this.frame>30&&Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100) {
+        if ((this.mx>0&&this.x>this.inx)||(this.mx<0&&this.inx>this.x)||(this.my>0&&this.y>this.iny)||(this.my<0&&this.iny>this.y)) {
+          this.x-=this.mx; this.y-=this.my;
+        }
+      }
+    } else {
+      const a=Math.abs(this.x-this.inx)>this.ex&&this.movingWay===1;
+      const b=Math.abs(this.y-this.iny)>this.ey&&this.movingWay===1;
+      const c=(this.mx>0&&this.x<this.inx&&this.movingWay===-1)||(this.mx<0&&this.x>this.inx&&this.movingWay===-1);
+      const d=(this.my>0&&this.y<this.iny&&this.movingWay===-1)||(this.my<0&&this.y>this.iny&&this.movingWay===-1);
+      if (a||b||c||d) this.movingWay*=-1;
+      this.x+=this.mx*this.movingWay; this.y+=this.my*this.movingWay;
+      if (this.frame<3) player.x+=this.mx*this.movingWay;
+    }
+    this.frame++;
+  }
+  check(player) {
+    const {x1,y1,x2,y2,px1,px2,py1,py2}=overlap(this,player);
+    if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
+      const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
+      const min=Math.min(left,right,top,bottom);
+      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.touch=true; } else { this.touch=false; }}
+      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
+      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
+      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+    } else { this.touch=false; }
+  }
+  allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
+}
+
+class CheckPoint {
+  constructor(x, y, im=0) { this.x=x; this.y=y; this.im=im; this.pframe=0; }
+  draw(p) {
+    const sx=this.x-p.scrollx, sy=this.y-p.scrolly;
+    ctx.strokeStyle=this.im?'#0f0':'#fff'; ctx.lineWidth=5;
+    ctx.beginPath(); ctx.moveTo(sx+25,sy+50); ctx.lineTo(sx+25,sy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx+25,sy); ctx.lineTo(sx+50,sy+12.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx+25,sy+25); ctx.lineTo(sx+50,sy+12.5); ctx.stroke();
+  }
+  check(player) {
+    if (this.im) {
+      if ((player.x-this.x)**2+(player.y-this.y)**2<40000) {
+        player.finish=true;
+        player.x+=(20-(player.x-this.x))/40;
+        player.y+=(20-(player.y-this.y))/40;
+      }
+      return (player.x-this.x)**2+(player.y-this.y)**2<10;
+    } else {
+      const x1=this.x+12.5,y1=this.y+12.5,x2=this.x+37.5,y2=this.y+37.5;
+      const px1=player.x-player.width/2,px2=player.x+player.width/2;
+      const py1=player.y-player.height/2,py2=player.y+player.height/2;
+      return px2>x1&&px1<x2&&py2>y1&&py1<y2?1:0;
+    }
+  }
+  allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
+}
+
+// helper: returns the AABB bounds for object+player
+function overlap(obj, player) {
+  return {
+    x1: obj.x, y1: obj.y, x2: obj.x+50, y2: obj.y+50,
+    px1: player.x-player.width/2, px2: player.x+player.width/2,
+    py1: player.y-player.height/2, py2: player.y+player.height/2
+  };
+}
+
+// ===================== PLAYER =====================
+class Player {
+  constructor(mapRows) {
+    this.cpx = 150;
+    this.cpy = mapRows * 50 - 200;
+    this.x = this.cpx; this.y = this.cpy;
+    this.dy = 0; this.dx = 0;
+    this.touch = true;
+    this.width = 50; this.height = 50;
+    this.jumpmotion = 1;
+    this.scrollx = 150;
+    this.scrolly = mapRows * 50 - 200;
+    this.slip = 0.8;
+    this.cframe = 0; this.coframe = 0;
+    this.jumped = false;
+    this.tpx = 320;
+    this.died = false;
+    this.finish = false;
+    this.frameAfterStart = 0;
+  }
+  draw() {
+    if (!this.died || this.frameAfterStart < 100) {
+      const px = this.x - this.width/2 - this.scrollx;
+      const py = this.y - this.scrolly - 240 - this.height/2;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(px, py+240, this.width, this.height);
+    }
+  }
+  move() {
+    this.frameAfterStart++;
+    if ((!this.died || this.frameAfterStart < 100) && !this.finish) {
+      if (this.died) this.died = false;
+      if (keyPressed('left') && !keyPressed('right') && this.x > 25) {
+        if (this.tpx < 440) this.tpx += 5;
+        this.dx = -5;
+      }
+      if (keyPressed('right')) {
+        if (this.tpx > 200) this.tpx -= 5;
+        this.dx = 5;
+      }
+      if ((!keyPressed('right') && !keyPressed('left')) || (keyPressed('right') && keyPressed('left'))) {
+        this.dx *= this.slip;
+      }
+      if (this.x < 25) { this.dx = 0; this.x = 25; }
+
+      if (this.touch) { this.coframe = 0; if (this.jumped) this.jumped = false; }
+      else { this.coframe++; }
+
+      if (keyPressed('jump') && this.jumpmotion <= 5) {
+        this.jumpmotion++;
+        this.width  = 50 + this.jumpmotion * 2;
+        this.height = 50 - this.jumpmotion;
+      }
+      if ((!keyPressed('jump') && this.jumpmotion > 0) || this.jumpmotion >= 5) {
+        this.cframe = 0;
+      }
+      if (!this.jumped && this.cframe < 20 && this.coframe < 20 && !keyPressed('jump')) {
+        this.dy = this.jumpmotion * 2;
+        this.jumpmotion *= 0.8;
+        this.cframe = 21;
+        this.jumped = true;
+      }
+      this.cframe++;
+      this.y += -this.dy;
+      this.x += this.dx;
+
+      if (!this.touch) {
+        this.dy -= 0.5;
+        this.jumpmotion *= 0.8;
+        this.width  = 50 + this.jumpmotion * 2;
+        this.height = 50 - this.jumpmotion;
+      }
+    }
+  }
+}
+
+// ===================== MAP =====================
+const a=[0,-2,10,200,0], b=[4,0,250,10,1], c=[4,0,50,10,1], d=[0,-2,10,200,1],
+      e=[4,0,250,10,0], f=[-4,0,250,10,0], g=[0,4,10,100,0], h=[0,-4,10,100,0];
+
+const MAP = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,0,0,0,0,0,1,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1],
+  [1,0,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
+  [1,1,1,1,1,0,0,0,0,4,0,0,0,1,1,0,0,0,0,0,0,4,0,1,0,0,0,0,1],
+  [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0,1,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
+  [1,0,0,0,0,0,0,3,0,0,0,4,2,2,2,2,4,2,2,2,2,4,0,9,0,0,0,1,1],
+  [1,0,0,0,0,0,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1],
+  [1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
+  [1,0,0,0,0,0,1,1,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1],
+  [1,0,0,8,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
+  [1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,6,0,0,0,0,0,0,6,1,0,0,0,0,1],
+  [1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1],
+  [1,0,0,8,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,1,1,0,0,0,7,7,0,0,0,0,0,7,7,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,1,1],
+  [1,0,0,8,0,0,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+  [1,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,3,0,0,0,g,0,0,0,g,0,0,0,g,0,0,0,g,0,0,0,g,0,0,0,0,1],
+  [1,1,1,1,1,1,2,6,2,6,2,6,2,6,2,6,2,6,2,6,2,6,2,6,1,1,0,0,1],
+  [1,0,0,0,0,0,0,0,0,h,0,0,0,h,0,0,0,h,0,0,0,h,0,0,0,0,0,0,1],
+  [1,0,0,0,0,1,2,6,2,6,2,6,2,6,2,6,2,6,2,6,2,6,2,6,2,6,2,1,1],
+  [1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
+  [1,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,1,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,1,0,0,0,0,0,1,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,6,0,0,1,4,1],
+  [1,4,4,4,4,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,0,0,0,0,0,1,0,1],
+  [1,1,1,1,1,1,1,0,0,0,0,6,0,0,0,0,6,6,0,0,0,0,0,0,2,2,1,0,1],
+  [1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,4,1],
+  [1,0,0,0,3,1,e,0,0,0,0,0,0,0,0,0,0,f,e,0,0,0,0,0,1,1,1,1,1],
+  [1,0,0,0,7,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,7,7,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+  [1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,7,7,7,1,1,1,1,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,2,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
+  [1,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,1],
+  [1,4,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,1],
+  [1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,3,0,1,1,0,0,0,0,0,1],
+  [1,0,1,0,0,0,1,0,0,0,0,1,1,0,1,1,1,2,2,1,c,1,1,0,1,1,1,a,1],
+  [1,2,2,2,2,2,2,2,0,0,0,1,1,0,1,0,0,0,0,1,0,1,1,4,0,0,0,0,1],
+  [1,0,0,0,0,0,0,1,1,1,1,1,1,0,1,0,1,0,0,1,0,1,1,2,1,2,1,0,1],
+  [1,0,0,0,0,3,0,1,0,0,0,0,0,0,1,0,1,0,0,1,0,1,0,0,0,0,0,0,1],
+  [1,0,0,0,1,1,c,1,0,0,1,1,1,d,1,0,1,0,0,1,0,1,0,0,0,0,0,0,1],
+  [1,0,0,0,0,1,0,1,0,0,0,0,0,0,1,0,1,0,0,1,0,1,0,0,2,0,0,4,1],
+  [1,0,0,0,0,1,0,1,1,1,1,1,1,0,1,0,1,0,0,1,0,1,0,0,2,0,0,0,1],
+  [1,1,0,0,0,1,0,1,0,0,0,0,0,0,1,0,1,0,0,1,0,1,0,0,2,0,0,0,1],
+  [1,0,0,0,0,1,0,1,0,0,0,0,0,0,1,0,1,d,0,1,0,0,4,4,2,4,4,4,1],
+  [1,0,0,0,0,1,0,1,4,4,4,4,4,4,0,0,1,0,0,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,1,1,0,1,1,1,1,1,1,1,1,1,1,0,0,1,2,2,1,1,1,1,1,1,1],
+  [1,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,1],
+  [1,0,0,0,0,1,0,1,0,0,1,1,1,1,1,1,1,1,d,1,0,1,0,0,1,0,0,0,1],
+  [1,1,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,3,0,0,0,0,1],
+  [1,0,0,0,0,1,0,1,7,7,7,7,7,7,7,7,7,7,7,1,1,1,1,1,1,0,0,0,1],
+  [1,0,0,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,1],
+  [1,0,0,0,0,1,c,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,1,1,1,1,1,b,0,0,0,0,0,0,0,0,0,0,7,7,0,0,0,7,7,1],
+  [1,0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+  [1,a,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,4,4,4,0,0,3,0,4,0,0,0,4,0,0,4,0,0,4,0,0,0,3,0,0,0,0,1],
+  [1,1,1,1,1,1,1,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,0,0,0,1],
+  [1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,1],
+  [1,1,2,2,2,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,1],
+  [1,0,0,0,0,1,1,1,1,b,0,0,0,0,0,6,0,b,0,0,0,0,0,0,0,0,0,1,1],
+  [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1],
+  [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,1,1],
+  [1,0,0,0,0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1],
+  [1,0,0,a,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,4,4,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,0,0,0,0,6,0,0,0,0,6,0,0,0,0,1,1,6,0,0,0,1],
+  [1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1,0,0,0,6,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,6,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,6,1],
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,3,0,0,0,1,0,0,1,0,0,0,0,0,0,1,1,1,0,0,0,3,0,1,6,0,0,0,1],
+  [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,1,1,1,1,2,2,2,2,1],
+  [1,0,0,1,2,2,2,2,2,2,2,2,2,0,0,0,0,1,0,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,2,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+
+// ===================== GAME STATE =====================
+let state = 'menu'; // 'menu' | 'playing' | 'end'
+let player, blocks, spikes, flags, pads, moveblocks, dblocks, iblocks, bblocks, particles;
+let startTime = 0;
+
+function initGame() {
+  jumpParticleNumber = 0;
+  player    = new Player(MAP.length);
+  blocks    = []; spikes  = []; flags  = []; pads       = [];
+  moveblocks= []; dblocks = []; iblocks= []; bblocks    = [];
+  particles = [];
+
+  for (let i = 0; i < MAP.length; i++) {
+    for (let j = 0; j < MAP[0].length; j++) {
+      const v = MAP[i][j];
+      const x = j * 50, y = i * 50;
+      if      (v===1) blocks.push(new Blocks(x,y));
+      else if (v===2) spikes.push(new Spike(x,y));
+      else if (v===3) flags.push(new CheckPoint(x,y));
+      else if (v===4) pads.push(new Jump(x,y));
+      else if (v===5) flags.push(new CheckPoint(x,y,1));
+      else if (v===6) dblocks.push(new DBlock(x,y));
+      else if (v===7) iblocks.push(new IBlock(x,y,0.99));
+      else if (v===8) iblocks.push(new IBlock(x,y,0.95));
+      else if (v===9) bblocks.push(new BBlock(x,y,400,50*MAP.length-50*87));
+      else if (arrEq(v,a)) moveblocks.push(new MBlock(x,y,...a));
+      else if (arrEq(v,b)) moveblocks.push(new MBlock(x,y,...b));
+      else if (arrEq(v,c)) moveblocks.push(new MBlock(x,y,...c));
+      else if (arrEq(v,d)) moveblocks.push(new MBlock(x,y,...d));
+      else if (arrEq(v,e)) moveblocks.push(new MBlock(x,y,...e));
+      else if (arrEq(v,f)) moveblocks.push(new MBlock(x,y,...f));
+      else if (arrEq(v,g)) moveblocks.push(new MBlock(x,y,...g));
+      else if (arrEq(v,h)) moveblocks.push(new MBlock(x,y,...h));
+    }
+  }
+  startTime = performance.now();
+}
+
+function arrEq(v, arr) {
+  return Array.isArray(v) && v.length===arr.length && v.every((x,i)=>x===arr[i]);
+}
+
+// ===================== MENU =====================
+let menuButtons = [];
+class Button {
+  constructor(label, x, y, w, h, color, action) {
+    this.label=label; this.x=x; this.y=y; this.w=w; this.h=h; this.color=color; this.action=action;
+    this.hover=false;
+  }
+  draw() {
+    const dw = this.hover ? this.w-10 : this.w;
+    const dh = this.hover ? this.h-10 : this.h;
+    ctx.fillStyle=this.color;
+    ctx.fillRect(this.x-dw/2, this.y-dh/2, dw, dh);
+    ctx.strokeStyle='#000'; ctx.lineWidth=3;
+    ctx.strokeRect(this.x-dw/2, this.y-dh/2, dw, dh);
+    ctx.fillStyle='#000'; ctx.font='bold 30px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(this.label, this.x, this.y);
+  }
+  hitTest(mx, my) { return mx>this.x-this.w/2&&mx<this.x+this.w/2&&my>this.y-this.h/2&&my<this.y+this.h/2; }
+}
+
+function initMenu() {
+  menuButtons = [
+    new Button('Play', 320, 240, 120, 60, 'rgb(20,200,20)', () => { state='playing'; initGame(); }),
+    new Button('Quit', 320, 120, 120, 60, 'rgb(200,20,20)', () => { ctx.fillStyle='#000'; ctx.fillRect(0,0,640,480); })
+  ];
+}
+
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = 640 / rect.width, scaleY = 480 / rect.height;
+  const mx = (e.clientX - rect.left) * scaleX;
+  const my = (e.clientY - rect.top)  * scaleY;
+  if (state==='menu') menuButtons.forEach(b => b.hover = b.hitTest(mx, my));
+});
+
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = 640 / rect.width, scaleY = 480 / rect.height;
+  const mx = (e.clientX - rect.left) * scaleX;
+  const my = (e.clientY - rect.top)  * scaleY;
+  if (state==='menu') menuButtons.forEach(b => { if (b.hitTest(mx,my)) b.action(); });
+});
+
+// ===================== TIMER =====================
+function formatTime(ms) {
+  const total = ms / 1000;
+  const mins  = Math.floor(total / 60);
+  const secs  = (total % 60).toFixed(1);
+  return `${mins}:${secs}  sub:${mins+1}`;
+}
+
+// ===================== GAME LOOP =====================
+function updateGame() {
+  player.move();
+  player.slip = 0.8;
+  player.touch = false;
+
+  blocks.forEach(b => { if (b.allowed(player)) b.check(player); });
+
+  // scroll
+  if (player.x > 240) player.scrollx += (player.x - player.tpx - player.scrollx) * 0.1;
+  else                 player.scrollx += (240-320 - player.scrollx) * 0.1;
+  player.scrolly += (player.y - player.scrolly - player.height/2 - 240) * 0.1;
+
+  dblocks.forEach(b => b.check(player));
+  iblocks.forEach(b => { if (b.allowed(player)) b.check(player); });
+  bblocks.forEach(b => { b.check(player); if (b.on===1) b.checkBlock(player); });
+  spikes.forEach(s => { if (s.allowed(player)) s.check(player, bblocks, particles); });
+
+  flags.forEach(f => {
+    f.pframe++;
+    if (f.allowed(player)) {
+      if (f.check(player) && (f.x!==player.cpx || f.y!==player.cpy)) {
+        f.pframe=0; player.cpx=f.x; player.cpy=f.y;
+        if (f.im) state='end';
+      }
+      if (f.pframe < 10) {
+        for (let i=0;i<10;i++) particles.push(new Particle(f.x+25,f.y+25,randFloat(-10,10),randFloat(-5,0),randInt(100,255),randInt(100,255),randInt(100,255)));
+      }
+    }
+  });
+
+  pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
+  moveblocks.forEach(mb => { mb.move(player); if (mb.allowed(player)) { mb.check(player); } });
+
+  for (let i=particles.length-1; i>=0; i--) {
+    if (particles[i].isDead()) {
+      if (particles[i].size===0.5) jumpParticleNumber--;
+      particles.splice(i,1);
+    } else { particles[i].move(); }
+  }
+}
+
+function drawGame() {
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,640,480);
+  blocks.forEach(b => { if (b.allowed(player)) b.draw(player); });
+  dblocks.forEach(b => { if (b.allowed(player)) b.draw(player); });
+  iblocks.forEach(b => { if (b.allowed(player)) b.draw(player); });
+  bblocks.forEach(b => b.draw(player));
+  spikes.forEach(s => { if (s.allowed(player)) s.draw(player); });
+  flags.forEach(f => { if (f.allowed(player)) f.draw(player); });
+  pads.forEach(p => { if (p.allowed(player)) p.draw(player); });
+  moveblocks.forEach(mb => { if (mb.allowed(player)) mb.draw(player); });
+  particles.forEach(p => p.draw(player.scrollx, player.scrolly));
+  player.draw();
+
+  // Timer HUD
+  const elapsed = performance.now() - startTime;
+  ctx.fillStyle='#fff'; ctx.font='bold 30px Arial'; ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText(formatTime(elapsed), 5, 5);
+}
+
+function drawMenu() {
+  ctx.fillStyle='#7d7d7d'; ctx.fillRect(0,0,640,480);
+  menuButtons.forEach(b => b.draw());
+}
+
+function drawEnd() {
+  const elapsed = performance.now() - startTime;
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,640,480);
+  ctx.fillStyle='#fff'; ctx.font='bold 40px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('GOAL!', 320, 180);
+  ctx.font='bold 28px Arial';
+  ctx.fillText('Time: ' + formatTime(elapsed), 320, 250);
+  ctx.font='20px Arial';
+  ctx.fillText('Press R to restart', 320, 320);
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code==='KeyR' && state==='end') { state='playing'; initGame(); }
+  if (e.code==='Escape' && state==='playing') { state='menu'; initMenu(); }
+});
+
+// ===================== START =====================
+initMenu();
+function loop() {
+  if      (state==='menu')    drawMenu();
+  else if (state==='playing') { updateGame(); drawGame(); }
+  else if (state==='end')     drawEnd();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
