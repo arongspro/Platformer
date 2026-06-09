@@ -936,7 +936,7 @@ function updateGame() {
   });
 
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
-  moveblocks.forEach(mb => { mb.move(player); if (mb.allowed(player)) { mb.check(player); } });
+  moveblocks.forEach(mb => { if (mb.allowed(player)) { mb.check(player); } }); // 위치는 서버에서 관리
 
   for (let i=particles.length-1; i>=0; i--) {
     if (particles[i].isDead()) {
@@ -1215,6 +1215,17 @@ function connectSocket() {
   // 온라인 인원 수
   socket.on('presence_update', list => {
     document.getElementById('onlineCount').textContent = list.length;
+  });
+
+  // 서버에서 moveblock 위치 수신 → 로컬 moveblocks 위치 덮어쓰기
+  socket.on('blocks_update', positions => {
+    if (!moveblocks) return;
+    positions.forEach((pos, i) => {
+      if (moveblocks[i]) {
+        moveblocks[i].x = pos.x;
+        moveblocks[i].y = pos.y;
+      }
+    });
   });
 
   socket.on('disconnect', () => { otherPlayers = {}; });
