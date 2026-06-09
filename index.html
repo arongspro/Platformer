@@ -1197,7 +1197,14 @@ function connectSocket() {
     const now = Date.now();
     for (const [uid, data] of Object.entries(stateMap)) {
       if (uid === myUid) continue;
-      otherPlayers[uid] = { ...data, ts: now };
+      const prev = otherPlayers[uid];
+      otherPlayers[uid] = {
+        ...data,
+        ts: now,
+        // 보간용 현재 렌더 위치 (이전 값 유지, 없으면 수신값으로 초기화)
+        renderX: prev ? prev.renderX : data.x,
+        renderY: prev ? prev.renderY : data.y,
+      };
     }
     // 오래된 플레이어 제거 (5초 이상 업데이트 없으면)
     for (const uid of Object.keys(otherPlayers)) {
@@ -1240,16 +1247,19 @@ function sendMyState() {
 // ── 다른 플레이어 렌더링 ──────────────────────────────
 function drawOtherPlayers() {
   if (!player) return;
-  sendMyState();   // 렌더 타이밍에 맞춰 전송
+  sendMyState();
 
   for (const data of Object.values(otherPlayers)) {
     if (!data || data.gameState === 'menu') continue;
 
-    // 내 카메라 기준으로 상대 월드좌표 → 스크린좌표 변환
+    // 보간: renderX/Y를 목표값(data.x/y)으로 부드럽게 이동
+    data.renderX += (data.x - data.renderX) * 0.25;
+    data.renderY += (data.y - data.renderY) * 0.25;
+
     const w  = data.width  || 50;
     const h  = data.height || 50;
-    const sx = data.x - w/2 - player.scrollx;
-    const sy = data.y - h/2 - player.scrolly;
+    const sx = data.renderX - w/2 - player.scrollx;
+    const sy = data.renderY - h/2 - player.scrolly;
 
     // 화면 밖이면 스킵
     if (sx < -60 || sx > 700 || sy < -60 || sy > 540) continue;
