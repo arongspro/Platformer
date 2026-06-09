@@ -1150,7 +1150,7 @@ function loop() {
 loop();
 
 // ===================== MULTIPLAYER =====================
-const SERVER_URL = 'https://game-proxy.juhyung1234567910.workers.dev';  // Cloudflare Worker 주소
+const SERVER_URL = 'https://game-proxy.juhyung1234567910.workers.dev';
 const ROOM_ID    = 'PLATFORMER';
 
 let socket     = null;
@@ -1229,6 +1229,8 @@ function sendMyState() {
     y:         player.y,
     scrollx:   player.scrollx,
     scrolly:   player.scrolly,
+    width:     player.width,
+    height:    player.height,
     walkFrame: player.walkFrame,
     died:      player.died,
     gameState: state,
@@ -1244,8 +1246,10 @@ function drawOtherPlayers() {
     if (!data || data.gameState === 'menu') continue;
 
     // 내 카메라 기준으로 상대 월드좌표 → 스크린좌표 변환
-    const sx = data.x - data.width/2  - player.scrollx;
-    const sy = data.y - data.height/2 - player.scrolly - 240 + 240;
+    const w  = data.width  || 50;
+    const h  = data.height || 50;
+    const sx = data.x - w/2 - player.scrollx;
+    const sy = data.y - h/2 - player.scrolly;
 
     // 화면 밖이면 스킵
     if (sx < -60 || sx > 700 || sy < -60 || sy > 540) continue;
