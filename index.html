@@ -6,11 +6,70 @@
 <title>Platformer Game</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0a0a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+  body { background: #0a0a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Courier New', monospace; }
   canvas { display: block; image-rendering: pixelated; }
+
+  /* ── 닉네임 입력 오버레이 ── */
+  #nickOverlay {
+    position: fixed; inset: 0;
+    background: rgba(10,10,26,0.97);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  #nickOverlay h1 {
+    color: #fff; font-size: 48px; letter-spacing: 4px;
+    text-shadow: 0 0 30px #00a8e8;
+    margin-bottom: 12px;
+  }
+  #nickOverlay p { color: rgba(126,200,227,0.7); font-size: 15px; margin-bottom: 36px; }
+  #nickOverlay input {
+    background: rgba(255,255,255,0.07);
+    border: 2px solid rgba(0,168,232,0.5);
+    border-radius: 10px;
+    color: #fff; font-size: 22px; font-family: inherit;
+    padding: 12px 24px; width: 280px; text-align: center;
+    outline: none; margin-bottom: 20px;
+    transition: border-color .2s;
+  }
+  #nickOverlay input:focus { border-color: #00a8e8; }
+  #nickOverlay button {
+    background: linear-gradient(135deg,#1a5276,#2980b9);
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 10px;
+    color: #fff; font-size: 22px; font-family: inherit; font-weight: bold;
+    padding: 12px 48px; cursor: pointer;
+    transition: transform .1s, box-shadow .2s;
+  }
+  #nickOverlay button:hover { transform: scale(1.04); box-shadow: 0 0 20px #2980b9; }
+  #nickOverlay .err { color: #ff6b6b; font-size: 14px; margin-top: 10px; min-height: 20px; }
+
+  /* ── 온라인 카운터 HUD ── */
+  #onlineHud {
+    position: fixed; top: 8px; right: 8px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(0,168,232,0.3);
+    border-radius: 8px;
+    color: #7ec8e3; font-family: 'Courier New', monospace;
+    font-size: 14px; padding: 5px 12px;
+    z-index: 50; display: none;
+  }
 </style>
 </head>
 <body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+
+<!-- 닉네임 입력 -->
+<div id="nickOverlay">
+  <h1>PLATFORMER</h1>
+  <p>닉네임을 입력하고 바로 플레이!</p>
+  <input id="nickInput" maxlength="12" placeholder="닉네임 (2~12자)" autocomplete="off" />
+  <button id="nickBtn">▶ 입장</button>
+  <div class="err" id="nickErr"></div>
+</div>
+
+<!-- 온라인 인원 표시 -->
+<div id="onlineHud">🟢 <span id="onlineCount">1</span>명 온라인</div>
 <canvas id="gameCanvas" width="640" height="480"></canvas>
 <script>
 const canvas = document.getElementById('gameCanvas');
@@ -1084,11 +1143,236 @@ window.addEventListener('keydown', e => {
 initMenu();
 function loop() {
   if      (state==='menu')    { menuFrame++; drawMenu(); }
-  else if (state==='playing') { updateGame(); drawGame(); }
+  else if (state==='playing') { updateGame(); drawGame(); drawOtherPlayers(); }
   else if (state==='end')     { updateEnd(); drawEnd(); }
   requestAnimationFrame(loop);
 }
 loop();
+
+// ===================== MULTIPLAYER =====================
+const SERVER_URL = 'https://game-platformer.abrdns.com';  // Cloudflare Worker 주소
+const ROOM_ID    = 'PLATFORMER';
+
+let socket     = null;
+let myUid      = null;
+let myNickname = null;
+let otherPlayers = {};   // uid → { x, y, scrollx, scrolly, nickname, walkFrame, died, ts }
+
+// ── 닉네임 입력 처리 ──────────────────────────────────
+document.getElementById('nickBtn').addEventListener('click', tryEnter);
+document.getElementById('nickInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryEnter(); });
+
+function tryEnter() {
+  const nick = document.getElementById('nickInput').value.trim();
+  const err  = document.getElementById('nickErr');
+  if (nick.length < 2)  { err.textContent = '닉네임은 2자 이상이어야 합니다.'; return; }
+  if (nick.length > 12) { err.textContent = '닉네임은 12자 이하여야 합니다.'; return; }
+  if (!/^[a-zA-Z0-9가-힣_\-]+$/.test(nick)) { err.textContent = '특수문자는 사용할 수 없습니다.'; return; }
+  err.textContent = '';
+  myNickname = nick;
+  myUid = 'guest_' + Math.random().toString(36).slice(2, 10);
+  document.getElementById('nickOverlay').style.display = 'none';
+  document.getElementById('onlineHud').style.display   = 'block';
+  connectSocket();
+}
+
+// ── 소켓 연결 ─────────────────────────────────────────
+function connectSocket() {
+  socket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
+
+  socket.on('connect', () => {
+    socket.emit('join', {
+      uid:      myUid,
+      nickname: myNickname,
+      roomId:   ROOM_ID,
+      pixels:   [],
+      kills: 0, deaths: 0, rating: 0,
+    });
+    // heartbeat 30초마다
+    setInterval(() => socket.emit('heartbeat'), 30000);
+  });
+
+  // 전체 룸 상태 수신 → 내 uid 제외하고 저장
+  socket.on('state_update', stateMap => {
+    const now = Date.now();
+    for (const [uid, data] of Object.entries(stateMap)) {
+      if (uid === myUid) continue;
+      otherPlayers[uid] = { ...data, ts: now };
+    }
+    // 오래된 플레이어 제거 (5초 이상 업데이트 없으면)
+    for (const uid of Object.keys(otherPlayers)) {
+      if (now - otherPlayers[uid].ts > 5000) delete otherPlayers[uid];
+    }
+  });
+
+  // 온라인 인원 수
+  socket.on('presence_update', list => {
+    document.getElementById('onlineCount').textContent = list.length;
+  });
+
+  socket.on('disconnect', () => { otherPlayers = {}; });
+}
+
+// ── 내 상태 전송 (게임 루프에서 호출) ─────────────────
+let lastSendTs = 0;
+const SEND_INTERVAL = 50; // 20fps
+
+function sendMyState() {
+  if (!socket || !player || state !== 'playing') return;
+  const now = Date.now();
+  if (now - lastSendTs < SEND_INTERVAL) return;
+  lastSendTs = now;
+  socket.emit('state_update', {
+    uid:       myUid,
+    nickname:  myNickname,
+    x:         player.x,
+    y:         player.y,
+    scrollx:   player.scrollx,
+    scrolly:   player.scrolly,
+    walkFrame: player.walkFrame,
+    died:      player.died,
+    gameState: state,
+  });
+}
+
+// ── 다른 플레이어 렌더링 ──────────────────────────────
+function drawOtherPlayers() {
+  if (!player) return;
+  sendMyState();   // 렌더 타이밍에 맞춰 전송
+
+  for (const data of Object.values(otherPlayers)) {
+    if (!data || data.gameState === 'menu') continue;
+
+    // 내 카메라 기준으로 상대 월드좌표 → 스크린좌표 변환
+    const sx = data.x - data.width/2  - player.scrollx;
+    const sy = data.y - data.height/2 - player.scrolly - 240 + 240;
+
+    // 화면 밖이면 스킵
+    if (sx < -60 || sx > 700 || sy < -60 || sy > 540) continue;
+
+    const sprite = (Math.floor((data.walkFrame||0)/8) % 2 === 0) ? playerImg0 : playerImg1;
+
+    ctx.save();
+    ctx.globalAlpha = data.died ? 0.25 : 0.55;
+
+    // 색조 오버레이로 구분 (주황빛)
+    ctx.filter = 'hue-rotate(40deg) saturate(1.5)';
+    ctx.drawImage(sprite, sx, sy, 50, 50);
+    ctx.filter = 'none';
+
+    // 닉네임 태그
+    ctx.globalAlpha = data.died ? 0.2 : 0.85;
+    const tag = data.nickname || '???';
+    ctx.font = 'bold 11px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    const tw = ctx.measureText(tag).width + 10;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.roundRect(sx + 25 - tw/2, sy - 18, tw, 16, 4);
+    ctx.fill();
+    ctx.fillStyle = '#ffd580';
+    ctx.fillText(tag, sx + 25, sy - 6);
+    ctx.restore();
+  }
+}
+
+// ── 클리어 시 서버에 기록 저장 ────────────────────────
+// updateGame() 안에서 state='end' 세팅 직전에 호출되도록
+// → initEndButtons() 를 오버라이드해서 훅 삽입
+const _origInitEndButtons = initEndButtons;
+window.initEndButtons = function() {
+  _origInitEndButtons();
+  reportClear();
+  setTimeout(loadRanking, 800);  // 저장 후 랭킹 갱신
+};
+
+// ── 랭킹 데이터 ───────────────────────────────────────
+let rankingData = [];
+async function loadRanking() {
+  try {
+    const r = await fetch(`${SERVER_URL}/api/platformer/ranking`);
+    rankingData = await r.json();
+  } catch(e) { rankingData = []; }
+}
+
+// endButtons 에 랭킹 버튼 추가 (initEndButtons 오버라이드)
+const __orig = window.initEndButtons;  // 위에서 이미 오버라이드됨
+// drawEnd 를 오버라이드해서 랭킹 패널 추가
+const _origDrawEnd = drawEnd;
+window.drawEnd = function() {
+  _origDrawEnd();
+  drawRankingPanel();
+};
+
+function drawRankingPanel() {
+  if (!rankingData || rankingData.length === 0) return;
+  const px = 545, py = 40, pw = 90, ph = 360;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(10,20,40,0.82)';
+  ctx.strokeStyle = 'rgba(0,168,232,0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(px, py, pw, ph, 8); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = '#7ec8e3';
+  ctx.font = 'bold 9px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('🏆 TOP', px + pw/2, py + 14);
+
+  const gradeColors = { S:'#ffd700', A:'#00e5ff', B:'#69f0ae', C:'#ff9800', D:'#f44336' };
+  const top5 = rankingData.slice(0, 10);
+  top5.forEach((r, i) => {
+    const ry = py + 28 + i * 32;
+    // rank number
+    ctx.fillStyle = i === 0 ? '#ffd700' : i === 1 ? '#ccc' : i === 2 ? '#cd7f32' : 'rgba(180,200,220,0.6)';
+    ctx.font = `bold ${i<3?10:9}px "Courier New", monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText(`${i+1}.`, px + 6, ry);
+
+    // nickname
+    ctx.fillStyle = 'rgba(200,225,255,0.9)';
+    ctx.font = '9px "Courier New", monospace';
+    const nick = r.nickname.length > 7 ? r.nickname.slice(0,6)+'…' : r.nickname;
+    ctx.fillText(nick, px + 18, ry);
+
+    // grade
+    ctx.fillStyle = gradeColors[r.grade] || '#aaa';
+    ctx.font = 'bold 9px "Courier New", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(r.grade, px + pw - 4, ry);
+
+    // score
+    ctx.fillStyle = 'rgba(150,190,230,0.7)';
+    ctx.font = '8px "Courier New", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText((r.score/1000).toFixed(0)+'k', px + pw - 4, ry + 10);
+  });
+  ctx.restore();
+}
+
+async function reportClear() {
+  if (!myNickname) return;
+  const score     = calcScore(finalTime, player ? player.deathCount : 0);
+  const deaths    = player ? player.deathCount : 0;
+  const clearTime = Math.round(finalTime / 1000);
+  const grade     = getGrade(score).grade;
+
+  // REST API로 기록 저장
+  try {
+    await fetch(`${SERVER_URL}/api/platformer/score`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nickname: myNickname, score, deaths, clearTime }),
+    });
+  } catch(e) { console.warn('기록 저장 실패', e); }
+
+  // 소켓 채팅으로 클리어 알림 (다른 플레이어에게)
+  if (socket) {
+    socket.emit('chat', {
+      text: `🏁 ${myNickname} 클리어! [${grade}] ${formatTime(finalTime)} / 💀${deaths}`,
+    });
+  }
+}
 </script>
 </body>
 </html>
