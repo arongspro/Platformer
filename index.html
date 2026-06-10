@@ -940,25 +940,16 @@ function updateGame() {
   });
 
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
-  // 무빙블록 처리
-  // am=true(플레이어 탑승 필요): 항상 로컬 처리, move→check 순서 필수
-  //   move()에서 이전 프레임 touch로 frame 리셋 → check()로 이번 프레임 touch 갱신
-  // am=false(자동 왕복): 서버 연결 시 서버 좌표 사용, 아니면 로컬 계산
+  // 무빙블록 처리 - 모든 블록 로컬 60fps 계산
+  // 서버는 접속 시 초기 상태 제공 + 1초마다 드리프트 보정만 담당
   moveblocks.forEach(mb => {
-    if (mb.am) {
-      mb.move(player);
-      mb.check(player);
-    } else if (!socket || !socket.connected) {
-      mb.move(player);
-      if (mb.allowed(player)) mb.check(player);
-    } else {
-      const prevX = mb.x;
-      const prevY = mb.y;
-      if (mb.allowed(player)) mb.check(player);
-      if (mb.touch) {
-        player.x += mb.x - prevX;
-        player.y += mb.y - prevY;
-      }
+    const prevX = mb.x;
+    const prevY = mb.y;
+    mb.move(player);
+    mb.check(player);
+    if (!mb.am && mb.touch) {
+      player.x += mb.x - prevX;
+      player.y += mb.y - prevY;
     }
   });
 
@@ -1241,22 +1232,18 @@ function connectSocket() {
     document.getElementById('onlineCount').textContent = list.length;
   });
 
-  // 서버에서 moveblock 위치 수신
-  // am=false(자동왕복): 서버 좌표로 덮어쓰기
-  // am=true(플레이어탑승): null로 전송됨 → 무시하고 클라이언트 로컬값 유지
+  // 서버에서 블록 상태 수신
+  // 접속 시 초기 동기화 + 1초마다 드리프트 보정
+  // am=false: x, y, movingWay 동기화 후 클라이언트 로컬 60fps로 계산
+  // am=true(null): 무시
   socket.on('blocks_update', positions => {
     if (!moveblocks) return;
     positions.forEach((pos, i) => {
       const mb = moveblocks[i];
-      if (!mb || pos === null) return;  // null이면 am=true 블록 → 무시
-      const prevX = mb.x;
-      const prevY = mb.y;
+      if (!mb || pos === null) return;
       mb.x = pos.x;
       mb.y = pos.y;
-      if (player && mb.touch) {
-        player.x += pos.x - prevX;
-        player.y += pos.y - prevY;
-      }
+      mb.movingWay = pos.movingWay ?? mb.movingWay;
     });
   });
 
