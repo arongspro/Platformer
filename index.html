@@ -946,14 +946,15 @@ function updateGame() {
     const prevY = mb.y;
     mb.move(player);
     mb.check(player);
-    // 1초 보정값이 있으면 lerp로 서서히 수렴 (0.05 = 약 60프레임에 걸쳐 수렴)
-    if (mb.targetX !== undefined) {
-      mb.x += (mb.targetX - mb.x) * 0.05;
-      mb.y += (mb.targetY - mb.y) * 0.05;
-      if (Math.abs(mb.targetX - mb.x) < 0.5 && Math.abs(mb.targetY - mb.y) < 0.5) {
-        mb.x = mb.targetX; mb.y = mb.targetY;
-        mb.targetX = undefined; mb.targetY = undefined;
-      }
+    // 1초 보정 오프셋을 매 프레임 조금씩 적용 (move() 결과에 더하는 방식)
+    if (mb.correctX || mb.correctY) {
+      const cx = (mb.correctX ?? 0) * 0.05;
+      const cy = (mb.correctY ?? 0) * 0.05;
+      mb.x += cx; mb.y += cy;
+      mb.correctX = (mb.correctX ?? 0) - cx;
+      mb.correctY = (mb.correctY ?? 0) - cy;
+      if (Math.abs(mb.correctX) < 0.1) mb.correctX = 0;
+      if (Math.abs(mb.correctY) < 0.1) mb.correctY = 0;
     }
     if (!mb.am && mb.touch) {
       player.x += mb.x - prevX;
@@ -1257,9 +1258,9 @@ function connectSocket() {
         mb.y = pos.y;
         mb.movingWay = pos.movingWay ?? mb.movingWay;
       } else {
-        // 1초 보정: 목표값 저장, 게임루프에서 lerp로 부드럽게 수렴
-        mb.targetX = pos.x;
-        mb.targetY = pos.y;
+        // 1초 보정: 서버-클라이언트 오프셋 저장, 게임루프에서 서서히 0으로 수렴
+        mb.correctX = (mb.correctX ?? 0) + (pos.x - mb.x);
+        mb.correctY = (mb.correctY ?? 0) + (pos.y - mb.y);
         mb.movingWay = pos.movingWay ?? mb.movingWay;
       }
     });
