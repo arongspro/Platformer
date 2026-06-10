@@ -936,21 +936,22 @@ function updateGame() {
   });
 
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
-  // 서버에서 위치 받으면 서버 기준, 아니면 로컬에서 직접 계산
+  // 무빙블록 처리
+  // am=false(자동 왕복): 소켓 연결 시 서버 좌표 사용, 아니면 로컬 계산
+  // am=true(플레이어 탑승 필요): 항상 로컬에서 직접 move() 처리
   moveblocks.forEach(mb => {
-    if (!socket || !socket.connected) {
-      // 서버 없으면 로컬에서 직접 이동 계산 후 충돌 처리
+    if (!socket || !socket.connected || mb.am) {
+      // 서버 없거나 am=true 블록 → 로컬에서 직접 이동 + 충돌 처리
       mb.move(player);
       if (mb.allowed(player)) mb.check(player);
     } else {
-      // 서버가 x/y를 이미 blocks_update로 갱신해줬으므로 move() 불필요
-      // 충돌/탑승 처리만 수행하고, 탑승 중이면 플레이어도 같이 밀기
+      // am=false 자동왕복 블록 → 서버 좌표 사용, 충돌/탑승만 처리
       const prevX = mb.x;
       const prevY = mb.y;
       if (mb.allowed(player)) mb.check(player);
       if (mb.touch) {
         player.x += mb.x - prevX;
-        player.y += mb.y - prevY;  // 수직 이동 블록 탑승 보정
+        player.y += mb.y - prevY;
       }
     }
   });
