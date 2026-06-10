@@ -490,6 +490,8 @@ class MBlock {
     if (this.my < 0) ctx.fillText('↑', sx+25, sy+14);
   }
   move(player) {
+    // 원격 제어 블록: 다른 플레이어가 올라탄 am 블록 → 서버에서 받은 위치만 사용, 로컬 계산 안 함
+    if (this.am && this.remoteControlled) return;
     if (this.touch) this.frame=0;
     if (this.am) {
       if (((this.frame<3&&this.my===0)||(this.touch&&this.mx===0))&&Math.abs(this.x-this.inx)<this.ex&&Math.abs(this.y-this.iny)<this.ey) {
@@ -955,6 +957,8 @@ function updateGame() {
     const prevY = mb.y;
     mb.check(player);
     if (mb.touch) {
+      // 내가 올라탄 순간 → 내가 이 블록의 소유자, 로컬 계산 활성화
+      if (mb.am) mb.remoteControlled = false;
       player.x += mb.x - prevX;
       player.y += mb.y - prevY;
     }
@@ -1257,36 +1261,39 @@ function connectSocket() {
   });
 
   // 서버에서 블록 상태 수신
-  // 접속 시 1회만 스냅 + movingWay 동기화
-  // 이후 클라이언트가 서버와 동일한 로직으로 로컬 계산 → 드리프트 없음
   let blockSynced = false;
   socket.on('blocks_update', positions => {
     if (!moveblocks) return;
     positions.forEach((pos, i) => {
       const mb = moveblocks[i];
       if (!mb || pos === null) return;
+      // am 블록은 내가 현재 올라타고 있으면(remoteControlled=false) 덮어쓰지 않음
+      if (mb.am && mb.remoteControlled === false) return;
       mb.x = pos.x;
       mb.y = pos.y;
       mb.movingWay = pos.movingWay ?? mb.movingWay;
-      if (pos.returning !== undefined) mb.returning = pos.returning;
+      if (mb.am) mb.remoteControlled = true; // 서버 위치로 동기화 → 원격 제어 상태
     });
     blockSynced = true;
   });
 
-  // 다른 클라이언트가 올라탄 am=true 블록의 위치를 실시간 수신
+  socket.on('disconnect', () => { otherPlayers = {}; });
+
+  // 다른 플레이어가 올라탄 am 블록 위치 수신 → 위치만 덮어씀 (move()는 안 함)
   socket.on('am_blocks_patch', updates => {
     if (!moveblocks) return;
     for (const { index, x, y, movingWay, returning } of updates) {
       const mb = moveblocks[index];
       if (!mb || !mb.am) continue;
+      // 내가 올라타고 있는 블록이면 무시 (내 로컬이 우선)
+      if (mb.remoteControlled === false) continue;
       mb.x = x;
       mb.y = y;
       mb.movingWay = movingWay ?? mb.movingWay;
       if (returning !== undefined) mb.returning = returning;
+      mb.remoteControlled = true;
     }
   });
-
-  socket.on('disconnect', () => { otherPlayers = {}; });
 }
 
 // ── 내 상태 전송 (게임 루프에서 호출) ─────────────────
@@ -1312,17 +1319,14 @@ function sendMyState() {
     gameState: state,
   });
 
-  // am=true 블록 위치를 서버로 전송 (다른 플레이어와 동기화)
+  // 내가 올라타고 있는 am 블록 위치를 서버로 전송
   if (moveblocks) {
-    const amUpdates = [];
-    moveblocks.forEach((mb, index) => {
-      if (mb.am) {
-        amUpdates.push({ index, x: mb.x, y: mb.y, movingWay: mb.movingWay, returning: mb.returning ?? false });
-      }
-    });
-    if (amUpdates.length > 0) {
-      socket.emit('am_blocks_update', amUpdates);
-    }
+    const amUpdates = moveblocks
+      .map((mb, index) => mb.am && mb.remoteControlled === false
+        ? { index, x: mb.x, y: mb.y, movingWay: mb.movingWay, returning: mb.returning ?? false }
+        : null)
+      .filter(Boolean);
+    if (amUpdates.length > 0) socket.emit('am_blocks_update', amUpdates);
   }
 }
 
