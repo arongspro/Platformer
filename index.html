@@ -906,6 +906,15 @@ function initEndButtons() {
 }
 
 // ===================== GAME LOOP =====================
+// 블록 위치 계산 - 서버와 동일한 16ms 틱 기준으로 호출됨
+// delta time 누적으로 fps에 무관하게 모든 클라이언트 동일한 위치 보장
+function tickMoveblocks() {
+  if (!moveblocks || !player) return;
+  moveblocks.forEach(mb => {
+    mb.move(player);
+  });
+}
+
 function updateGame() {
   player.move();
   player.slip = 0.8;
@@ -940,14 +949,12 @@ function updateGame() {
   });
 
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
-  // 무빙블록 처리 - 로컬 60fps 계산 + 1초 보정 lerp
+  // 무빙블록 충돌/탑승 처리 (위치 계산은 tickMoveblocks에서 16ms 틱으로 수행)
   moveblocks.forEach(mb => {
     const prevX = mb.x;
     const prevY = mb.y;
-    mb.move(player);
     mb.check(player);
-
-    if (!mb.am && mb.touch) {
+    if (mb.touch) {
       player.x += mb.x - prevX;
       player.y += mb.y - prevY;
     }
@@ -1156,7 +1163,24 @@ window.addEventListener('keydown', e => {
 
 // ===================== START =====================
 initMenu();
-function loop() {
+let lastLoopTime = null;
+let blockTickAccum = 0;  // 누적 시간 (ms)
+const BLOCK_TICK_MS = 16; // 서버와 동일한 틱 간격
+
+function loop(timestamp) {
+  if (lastLoopTime === null) lastLoopTime = timestamp;
+  const delta = Math.min(timestamp - lastLoopTime, 100); // 최대 100ms 캡 (탭 전환 등 방지)
+  lastLoopTime = timestamp;
+
+  if (state === 'playing') {
+    blockTickAccum += delta;
+    // 16ms 단위로 블록 틱 처리 → 60fps/30fps/144fps 모두 동일한 위치
+    while (blockTickAccum >= BLOCK_TICK_MS) {
+      tickMoveblocks();
+      blockTickAccum -= BLOCK_TICK_MS;
+    }
+  }
+
   if      (state==='menu')    { menuFrame++; drawMenu(); }
   else if (state==='playing') { updateGame(); drawGame(); drawOtherPlayers(); }
   else if (state==='end')     { updateEnd(); drawEnd(); }
