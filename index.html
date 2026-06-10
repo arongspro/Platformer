@@ -939,18 +939,20 @@ function updateGame() {
   // 서버에서 위치 받으면 서버 기준, 아니면 로컬에서 직접 계산
   moveblocks.forEach(mb => {
     if (!socket || !socket.connected) {
-      mb.move(player);  // 서버 없으면 로컬 계산
+      // 서버 없으면 로컬에서 직접 이동 계산 후 충돌 처리
+      mb.move(player);
+      if (mb.allowed(player)) mb.check(player);
     } else {
-      // 서버 위치 사용 + 플레이어 위에 올라서 있으면 같이 밀기
+      // 서버가 x/y를 이미 blocks_update로 갱신해줬으므로 move() 불필요
+      // 충돌/탑승 처리만 수행하고, 탑승 중이면 플레이어도 같이 밀기
       const prevX = mb.x;
       const prevY = mb.y;
-      mb.check(player);
+      if (mb.allowed(player)) mb.check(player);
       if (mb.touch) {
         player.x += mb.x - prevX;
+        player.y += mb.y - prevY;  // 수직 이동 블록 탑승 보정
       }
-      return;
     }
-    if (mb.allowed(player)) mb.check(player);
   });
 
   for (let i=particles.length-1; i>=0; i--) {
@@ -1203,6 +1205,8 @@ function connectSocket() {
       pixels:   [],
       kills: 0, deaths: 0, rating: 0,
     });
+    // 입장 직후 현재 블록 위치 즉시 요청 (50ms 틱 대기 없이 바로 동기화)
+    socket.emit('request_blocks');
     // heartbeat 30초마다
     setInterval(() => socket.emit('heartbeat'), 30000);
   });
