@@ -940,13 +940,21 @@ function updateGame() {
   });
 
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
-  // 무빙블록 처리 - 모든 블록 로컬 60fps 계산
-  // 서버는 접속 시 초기 상태 제공 + 1초마다 드리프트 보정만 담당
+  // 무빙블록 처리 - 로컬 60fps 계산 + 1초 보정 lerp
   moveblocks.forEach(mb => {
     const prevX = mb.x;
     const prevY = mb.y;
     mb.move(player);
     mb.check(player);
+    // 1초 보정값이 있으면 lerp로 서서히 수렴 (0.05 = 약 60프레임에 걸쳐 수렴)
+    if (mb.targetX !== undefined) {
+      mb.x += (mb.targetX - mb.x) * 0.05;
+      mb.y += (mb.targetY - mb.y) * 0.05;
+      if (Math.abs(mb.targetX - mb.x) < 0.5 && Math.abs(mb.targetY - mb.y) < 0.5) {
+        mb.x = mb.targetX; mb.y = mb.targetY;
+        mb.targetX = undefined; mb.targetY = undefined;
+      }
+    }
     if (!mb.am && mb.touch) {
       player.x += mb.x - prevX;
       player.y += mb.y - prevY;
@@ -1233,17 +1241,27 @@ function connectSocket() {
   });
 
   // 서버에서 블록 상태 수신
-  // 접속 시 초기 동기화 + 1초마다 드리프트 보정
-  // am=false: x, y, movingWay 동기화 후 클라이언트 로컬 60fps로 계산
-  // am=true(null): 무시
+  // 접속 시: 즉시 스냅 (initialSync 플래그)
+  // 1초마다 보정: 목표 좌표로 lerp (순간 텔레포트 방지)
+  let blockSyncCount = 0;
   socket.on('blocks_update', positions => {
     if (!moveblocks) return;
+    const isInitial = blockSyncCount === 0;
+    blockSyncCount++;
     positions.forEach((pos, i) => {
       const mb = moveblocks[i];
       if (!mb || pos === null) return;
-      mb.x = pos.x;
-      mb.y = pos.y;
-      mb.movingWay = pos.movingWay ?? mb.movingWay;
+      if (isInitial) {
+        // 최초 접속: 즉시 스냅 + movingWay 동기화
+        mb.x = pos.x;
+        mb.y = pos.y;
+        mb.movingWay = pos.movingWay ?? mb.movingWay;
+      } else {
+        // 1초 보정: 목표값 저장, 게임루프에서 lerp로 부드럽게 수렴
+        mb.targetX = pos.x;
+        mb.targetY = pos.y;
+        mb.movingWay = pos.movingWay ?? mb.movingWay;
+      }
     });
   });
 
