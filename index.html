@@ -493,10 +493,18 @@ class MBlock {
     if (this.touch) this.frame=0;
     if (this.am) {
       if (((this.frame<3&&this.my===0)||(this.touch&&this.mx===0))&&Math.abs(this.x-this.inx)<this.ex&&Math.abs(this.y-this.iny)<this.ey) {
+        this.returning=false;
         this.x+=this.mx; this.y+=this.my; player.x+=this.mx;
-      } else if (this.frame>30&&Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100) {
-        if ((this.mx>0&&this.x>this.inx)||(this.mx<0&&this.inx>this.x)||(this.my>0&&this.y>this.iny)||(this.my<0&&this.iny>this.y)) {
+      } else if (this.frame>30&&(this.returning||Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100)) {
+        // 복귀 시작 또는 복귀 중 → 거리 조건 무시하고 끝까지 원위치로
+        const atOrigin = Math.abs(this.x-this.inx)<Math.abs(this.mx)+1 && Math.abs(this.y-this.iny)<Math.abs(this.my)+1;
+        if (atOrigin) {
+          this.x=this.inx; this.y=this.iny; this.returning=false;
+        } else if ((this.mx>0&&this.x>this.inx)||(this.mx<0&&this.inx>this.x)||(this.my>0&&this.y>this.iny)||(this.my<0&&this.iny>this.y)) {
+          this.returning=true;
           this.x-=this.mx; this.y-=this.my;
+        } else {
+          this.returning=false;
         }
       }
     } else {
@@ -936,31 +944,21 @@ function updateGame() {
   });
 
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
-  // 무빙블록 처리
-  // am=false(자동 왕복): 소켓 연결 시 서버 좌표 사용, 아니면 로컬 계산
-  // am=true(플레이어 탑승 필요): 항상 로컬 move() 처리
-  //   동작 원리: check()로 touch=true 세팅 → 다음 move()에서 frame=0 리셋 → 3프레임 이동 반복
-  //   주의: touch 판정은 allowed() 없이 항상 수행해야 함
+  // 서버에서 위치 받으면 서버 기준, 아니면 로컬에서 직접 계산
   moveblocks.forEach(mb => {
-    if (mb.am) {
-      // 플레이어 탑승 감지 (allowed 조건 없이 항상 check)
-      mb.check(player);
-      // touch 상태 기반으로 move (수평: touch로 frame 리셋 후 3프레임 이동 / 수직: touch 중 계속 이동)
-      mb.move(player);
-    } else if (!socket || !socket.connected) {
-      // 서버 없음 → 로컬에서 자동왕복 계산
-      mb.move(player);
-      if (mb.allowed(player)) mb.check(player);
+    if (!socket || !socket.connected) {
+      mb.move(player);  // 서버 없으면 로컬 계산
     } else {
-      // am=false, 서버 연결됨 → 서버 좌표 사용, 충돌/탑승만 처리
+      // 서버 위치 사용 + 플레이어 위에 올라서 있으면 같이 밀기
       const prevX = mb.x;
       const prevY = mb.y;
-      if (mb.allowed(player)) mb.check(player);
+      mb.check(player);
       if (mb.touch) {
         player.x += mb.x - prevX;
-        player.y += mb.y - prevY;
       }
+      return;
     }
+    if (mb.allowed(player)) mb.check(player);
   });
 
   for (let i=particles.length-1; i>=0; i--) {
@@ -1213,8 +1211,6 @@ function connectSocket() {
       pixels:   [],
       kills: 0, deaths: 0, rating: 0,
     });
-    // 입장 직후 현재 블록 위치 즉시 요청 (50ms 틱 대기 없이 바로 동기화)
-    socket.emit('request_blocks');
     // heartbeat 30초마다
     setInterval(() => socket.emit('heartbeat'), 30000);
   });
