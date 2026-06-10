@@ -492,18 +492,21 @@ class MBlock {
   move(player) {
     if (this.touch) this.frame=0;
     if (this.am) {
+      // 이동 가능 범위 내에서 플레이어가 올라탄 경우 이동
       if (((this.frame<3&&this.my===0)||(this.touch&&this.mx===0))&&Math.abs(this.x-this.inx)<this.ex&&Math.abs(this.y-this.iny)<this.ey) {
         this.returning=false;
         this.x+=this.mx; this.y+=this.my; player.x+=this.mx;
-      } else if (this.frame>30&&(this.returning||Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100)) {
-        const atOrigin=Math.abs(this.x-this.inx)<Math.abs(this.mx)+1&&Math.abs(this.y-this.iny)<Math.abs(this.my)+1;
-        if (atOrigin) {
-          this.x=this.inx; this.y=this.iny; this.returning=false;
-        } else if ((this.mx>0&&this.x>this.inx)||(this.mx<0&&this.inx>this.x)||(this.my>0&&this.y>this.iny)||(this.my<0&&this.iny>this.y)) {
+      // 복귀 조건: 30프레임 경과 후 복귀 중이거나 플레이어가 충분히 멀 때 시작
+      } else if (this.frame>30) {
+        const farEnough = Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100;
+        const notAtOrigin = Math.abs(this.x-this.inx)>Math.abs(this.mx)||Math.abs(this.y-this.iny)>Math.abs(this.my);
+        if (notAtOrigin && (this.returning || farEnough)) {
           this.returning=true;
-          this.x-=this.mx; this.y-=this.my;
-        } else {
-          this.returning=false;
+          // 원위치 방향으로 한 칸씩 이동
+          if (Math.abs(this.x-this.inx)>Math.abs(this.mx)) this.x+=(this.inx>this.x?1:-1)*Math.abs(this.mx);
+          if (Math.abs(this.y-this.iny)>Math.abs(this.my)) this.y+=(this.iny>this.y?1:-1)*Math.abs(this.my);
+        } else if (!notAtOrigin) {
+          this.x=this.inx; this.y=this.iny; this.returning=false;
         }
       }
     } else {
