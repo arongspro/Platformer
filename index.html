@@ -938,14 +938,21 @@ function updateGame() {
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
   // 무빙블록 처리
   // am=false(자동 왕복): 소켓 연결 시 서버 좌표 사용, 아니면 로컬 계산
-  // am=true(플레이어 탑승 필요): 항상 로컬에서 직접 move() 처리
+  // am=true(플레이어 탑승 필요): 항상 로컬 move() 처리
+  //   동작 원리: check()로 touch=true 세팅 → 다음 move()에서 frame=0 리셋 → 3프레임 이동 반복
+  //   주의: touch 판정은 allowed() 없이 항상 수행해야 함
   moveblocks.forEach(mb => {
-    if (!socket || !socket.connected || mb.am) {
-      // 서버 없거나 am=true 블록 → 로컬에서 직접 이동 + 충돌 처리
+    if (mb.am) {
+      // 플레이어 탑승 감지 (allowed 조건 없이 항상 check)
+      mb.check(player);
+      // touch 상태 기반으로 move (수평: touch로 frame 리셋 후 3프레임 이동 / 수직: touch 중 계속 이동)
+      mb.move(player);
+    } else if (!socket || !socket.connected) {
+      // 서버 없음 → 로컬에서 자동왕복 계산
       mb.move(player);
       if (mb.allowed(player)) mb.check(player);
     } else {
-      // am=false 자동왕복 블록 → 서버 좌표 사용, 충돌/탑승만 처리
+      // am=false, 서버 연결됨 → 서버 좌표 사용, 충돌/탑승만 처리
       const prevX = mb.x;
       const prevY = mb.y;
       if (mb.allowed(player)) mb.check(player);
