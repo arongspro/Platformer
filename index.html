@@ -476,7 +476,7 @@ class MBlock {
   constructor(x,y,mx,my,ex,ey,playerFlag) {
     this.x=x; this.y=y; this.mx=mx; this.my=my;
     this.ex=ex; this.ey=ey; this.inx=x; this.iny=y;
-    this.touch=false; this.frame=0; this.am=playerFlag; this.movingWay=1; this.standingOn=false;
+    this.touch=false; this.frame=0; this.am=playerFlag; this.movingWay=1; this.standingOn=false; this.moved=false;
   }
   draw(p) {
     const sx=this.x-p.scrollx, sy=this.y-p.scrolly;
@@ -494,16 +494,20 @@ class MBlock {
     if (this.am && this.remoteControlled) return;
     if (this.touch) this.frame=0;
     if (this.am) {
-      if (((this.frame<3&&this.my===0)||(this.touch&&this.mx===0))&&Math.abs(this.x-this.inx)<this.ex&&Math.abs(this.y-this.iny)<this.ey) {
-        this.returning=false;
-        this.x+=this.mx; this.y+=this.my; player.x+=this.mx;
-      } else if (this.frame>30&&(this.returning||Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100)) {
-        if ((this.mx>0&&this.x>this.inx)||(this.mx<0&&this.inx>this.x)||(this.my>0&&this.y>this.iny)||(this.my<0&&this.iny>this.y)) {
-          this.returning=true;
-          this.x-=this.mx; this.y-=this.my;
-        } else {
-          this.x=this.inx; this.y=this.iny; this.returning=false;
-        }
+      const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
+      const withinBounds = Math.abs(this.x-this.inx)<this.ex&&Math.abs(this.y-this.iny)<this.ey;
+      const playerFar = Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100;
+      if (!this.returning && this.touch && withinBounds) {
+        this.x+=this.mx; this.y+=this.my; player.x+=this.mx; this.moved=true;
+      } else if (this.returning || (this.moved && playerFar && distFromOrigin>1)) {
+        this.returning=true;
+        // 원점 방향으로 한 칸씩 이동
+        const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
+        if (Math.abs(this.x-this.inx)>speed) this.x += (this.inx>this.x?1:-1)*speed;
+        else this.x=this.inx;
+        if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
+        else this.y=this.iny;
+        if (this.x===this.inx&&this.y===this.iny) { this.returning=false; this.frame=0; this.touch=false; this.moved=false; }
       }
     } else {
       const a=Math.abs(this.x-this.inx)>this.ex&&this.movingWay===1;
