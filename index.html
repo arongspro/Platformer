@@ -496,8 +496,7 @@ class MBlock {
         this.returning=false;
         this.x+=this.mx; this.y+=this.my; player.x+=this.mx;
       } else if (this.frame>30&&(this.returning||Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100)) {
-        // 복귀 시작 또는 복귀 중 → 거리 조건 무시하고 끝까지 원위치로
-        const atOrigin = Math.abs(this.x-this.inx)<Math.abs(this.mx)+1 && Math.abs(this.y-this.iny)<Math.abs(this.my)+1;
+        const atOrigin=Math.abs(this.x-this.inx)<Math.abs(this.mx)+1&&Math.abs(this.y-this.iny)<Math.abs(this.my)+1;
         if (atOrigin) {
           this.x=this.inx; this.y=this.iny; this.returning=false;
         } else if ((this.mx>0&&this.x>this.inx)||(this.mx<0&&this.inx>this.x)||(this.my>0&&this.y>this.iny)||(this.my<0&&this.iny>this.y)) {
@@ -944,21 +943,26 @@ function updateGame() {
   });
 
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
-  // 서버에서 위치 받으면 서버 기준, 아니면 로컬에서 직접 계산
+  // 무빙블록 처리
+  // am=true(플레이어 탑승 필요): 항상 로컬 처리, move→check 순서 필수
+  //   move()에서 이전 프레임 touch로 frame 리셋 → check()로 이번 프레임 touch 갱신
+  // am=false(자동 왕복): 서버 연결 시 서버 좌표 사용, 아니면 로컬 계산
   moveblocks.forEach(mb => {
-    if (!socket || !socket.connected) {
-      mb.move(player);  // 서버 없으면 로컬 계산
+    if (mb.am) {
+      mb.move(player);
+      mb.check(player);
+    } else if (!socket || !socket.connected) {
+      mb.move(player);
+      if (mb.allowed(player)) mb.check(player);
     } else {
-      // 서버 위치 사용 + 플레이어 위에 올라서 있으면 같이 밀기
       const prevX = mb.x;
       const prevY = mb.y;
-      mb.check(player);
+      if (mb.allowed(player)) mb.check(player);
       if (mb.touch) {
         player.x += mb.x - prevX;
+        player.y += mb.y - prevY;
       }
-      return;
     }
-    if (mb.allowed(player)) mb.check(player);
   });
 
   for (let i=particles.length-1; i>=0; i--) {
