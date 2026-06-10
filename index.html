@@ -492,21 +492,25 @@ class MBlock {
   move(player) {
     if (this.touch) this.frame=0;
     if (this.am) {
-      // 이동 가능 범위 내에서 플레이어가 올라탄 경우 이동
-      if (((this.frame<3&&this.my===0)||(this.touch&&this.mx===0))&&Math.abs(this.x-this.inx)<this.ex&&Math.abs(this.y-this.iny)<this.ey) {
-        this.returning=false;
-        this.x+=this.mx; this.y+=this.my; player.x+=this.mx;
-      // 복귀 조건: 30프레임 경과 후 복귀 중이거나 플레이어가 충분히 멀 때 시작
-      } else if (this.frame>30) {
-        const farEnough = Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100;
-        const notAtOrigin = Math.abs(this.x-this.inx)>Math.abs(this.mx)||Math.abs(this.y-this.iny)>Math.abs(this.my);
-        if (notAtOrigin && (this.returning || farEnough)) {
-          this.returning=true;
-          // 원위치 방향으로 한 칸씩 이동
-          if (Math.abs(this.x-this.inx)>Math.abs(this.mx)) this.x+=(this.inx>this.x?1:-1)*Math.abs(this.mx);
-          if (Math.abs(this.y-this.iny)>Math.abs(this.my)) this.y+=(this.iny>this.y?1:-1)*Math.abs(this.my);
-        } else if (!notAtOrigin) {
-          this.x=this.inx; this.y=this.iny; this.returning=false;
+      const inRange = Math.abs(this.x-this.inx)<this.ex && Math.abs(this.y-this.iny)<this.ey;
+      const moved   = Math.abs(this.x-this.inx)>1 || Math.abs(this.y-this.iny)>1;
+      // 이동: 플레이어가 위에 있고 범위 내
+      if (((this.frame<3&&this.my===0)||(this.touch&&this.mx===0)) && inRange) {
+        this.returning = false;
+        this.x += this.mx; this.y += this.my; player.x += this.mx;
+      // 복귀: 30프레임 경과 + (이미 복귀 중이거나 플레이어가 멀어짐)
+      } else if (this.frame>30 && moved) {
+        const far = Math.abs(player.x-this.x)+Math.abs(player.y-this.y) > 100;
+        if (this.returning || far) {
+          this.returning = true;
+          // 원위치로 1스텝씩 이동, 도착하면 스냅
+          const stepX = (this.inx>this.x?1:-1)*Math.abs(this.mx);
+          const stepY = (this.iny>this.y?1:-1)*Math.abs(this.my);
+          if (Math.abs(this.x-this.inx) > Math.abs(this.mx)) this.x += stepX;
+          else this.x = this.inx;
+          if (Math.abs(this.y-this.iny) > Math.abs(this.my)) this.y += stepY;
+          else this.y = this.iny;
+          if (this.x===this.inx && this.y===this.iny) this.returning = false;
         }
       }
     } else {
@@ -1247,18 +1251,21 @@ function connectSocket() {
     document.getElementById('onlineCount').textContent = list.length;
   });
 
-  // 서버에서 moveblock 위치 수신 → 로컬 moveblocks 위치 덮어쓰기
+  // 서버에서 moveblock 위치 수신 → am=false 블록만 덮어쓰기
+  // am=true 블록은 클라이언트가 로컬에서 처리하므로 서버 좌표 무시
   socket.on('blocks_update', positions => {
     if (!moveblocks) return;
     positions.forEach((pos, i) => {
-      if (!moveblocks[i]) return;
-      const prevX = moveblocks[i].x;
-      const prevY = moveblocks[i].y;
-      moveblocks[i].x = pos.x;
-      moveblocks[i].y = pos.y;
-      // 플레이어가 이 블록 위에 있으면 같이 밀기
-      if (player && moveblocks[i].touch) {
+      const mb = moveblocks[i];
+      if (!mb) return;
+      if (mb.am) return;  // am=true는 클라이언트 로컬 처리, 서버 좌표 무시
+      const prevX = mb.x;
+      const prevY = mb.y;
+      mb.x = pos.x;
+      mb.y = pos.y;
+      if (player && mb.touch) {
         player.x += pos.x - prevX;
+        player.y += pos.y - prevY;
       }
     });
   });
