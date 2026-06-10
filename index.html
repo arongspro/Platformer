@@ -1268,8 +1268,22 @@ function connectSocket() {
       mb.x = pos.x;
       mb.y = pos.y;
       mb.movingWay = pos.movingWay ?? mb.movingWay;
+      if (pos.returning !== undefined) mb.returning = pos.returning;
     });
     blockSynced = true;
+  });
+
+  // 다른 클라이언트가 올라탄 am=true 블록의 위치를 실시간 수신
+  socket.on('am_blocks_patch', updates => {
+    if (!moveblocks) return;
+    for (const { index, x, y, movingWay, returning } of updates) {
+      const mb = moveblocks[index];
+      if (!mb || !mb.am) continue;
+      mb.x = x;
+      mb.y = y;
+      mb.movingWay = movingWay ?? mb.movingWay;
+      if (returning !== undefined) mb.returning = returning;
+    }
   });
 
   socket.on('disconnect', () => { otherPlayers = {}; });
@@ -1297,6 +1311,19 @@ function sendMyState() {
     died:      player.died,
     gameState: state,
   });
+
+  // am=true 블록 위치를 서버로 전송 (다른 플레이어와 동기화)
+  if (moveblocks) {
+    const amUpdates = [];
+    moveblocks.forEach((mb, index) => {
+      if (mb.am) {
+        amUpdates.push({ index, x: mb.x, y: mb.y, movingWay: mb.movingWay, returning: mb.returning ?? false });
+      }
+    });
+    if (amUpdates.length > 0) {
+      socket.emit('am_blocks_update', amUpdates);
+    }
+  }
 }
 
 // ── 다른 플레이어 렌더링 ──────────────────────────────
