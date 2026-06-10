@@ -476,7 +476,7 @@ class MBlock {
   constructor(x,y,mx,my,ex,ey,playerFlag) {
     this.x=x; this.y=y; this.mx=mx; this.my=my;
     this.ex=ex; this.ey=ey; this.inx=x; this.iny=y;
-    this.touch=false; this.frame=0; this.am=playerFlag; this.movingWay=1;
+    this.touch=false; this.frame=0; this.am=playerFlag; this.movingWay=1; this.standingOn=false;
   }
   draw(p) {
     const sx=this.x-p.scrollx, sy=this.y-p.scrolly;
@@ -518,7 +518,7 @@ class MBlock {
   }
   check(player) {
     const {x1,y1,x2,y2,px1,px2,py1,py2}=overlap(this,player);
-    this.standingOn = false; // 이번 프레임에 플레이어가 이 블록 위에 서 있는지
+    this.standingOn = false;
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
       const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
       const min=Math.min(left,right,top,bottom);
@@ -958,8 +958,8 @@ function updateGame() {
     const prevY = mb.y;
     mb.check(player);
     if (mb.touch) {
-      // 내가 블록 위에 직접 올라선 경우(top collision)에만 소유권 획득
-      // 옆면/아래 충돌은 화면에 보인다고 해서 소유권을 빼앗으면 안 됨
+      // am 블록은 실제로 위에 올라선 경우(standingOn)에만 내 로컬 계산으로 전환
+      // 옆/아래 충돌만으로는 상대방이 타고 있는 블록의 소유권을 빼앗지 않음
       if (mb.am && mb.standingOn) mb.remoteControlled = false;
       player.x += mb.x - prevX;
       player.y += mb.y - prevY;
@@ -1269,7 +1269,7 @@ function connectSocket() {
     positions.forEach((pos, i) => {
       const mb = moveblocks[i];
       if (!mb || pos === null) return;
-      // am 블록은 내가 현재 그 위에 올라서 있을 때만 덮어쓰지 않음
+      // am 블록은 내가 현재 올라타고 있으면(remoteControlled=false && standingOn) 덮어쓰지 않음
       if (mb.am && mb.remoteControlled === false && mb.standingOn) return;
       mb.x = pos.x;
       mb.y = pos.y;
@@ -1287,8 +1287,7 @@ function connectSocket() {
     for (const { index, x, y, movingWay, returning } of updates) {
       const mb = moveblocks[index];
       if (!mb || !mb.am) continue;
-      // 내가 이 블록 위에 직접 올라서 있을 때만 무시 (remoteControlled=false && standingOn=true)
-      // 화면에 보이기만 해도 remoteControlled=false였던 이전 버그 수정됨
+      // 내가 이 블록 위에 직접 올라서 있을 때만 무시 (그 외엔 서버 위치 적용)
       if (mb.remoteControlled === false && mb.standingOn) continue;
       mb.x = x;
       mb.y = y;
