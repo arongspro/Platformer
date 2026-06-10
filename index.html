@@ -497,9 +497,12 @@ class MBlock {
       const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
       const withinBounds = Math.abs(this.x-this.inx)<this.ex&&Math.abs(this.y-this.iny)<this.ey;
       const playerFar = Math.abs(player.x-this.x)+Math.abs(player.y-this.y)>100;
-      if (!this.returning && this.touch && withinBounds) {
-        this.x+=this.mx; this.y+=this.my; player.x+=this.mx; this.moved=true;
-      } else if (this.returning || (this.moved && playerFar && distFromOrigin>1)) {
+      if (!this.returning && (this.touch || this.moving) && withinBounds) {
+        this.moving=true;
+        this.x+=this.mx; this.y+=this.my; if(this.touch) player.x+=this.mx; this.moved=true;
+      } else if (!withinBounds && this.moving) {
+        this.moving=false;
+      } else if (this.returning || (this.moved && !this.moving && playerFar && distFromOrigin>1)) {
         this.returning=true;
         // 원점 방향으로 한 칸씩 이동
         const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
@@ -507,7 +510,7 @@ class MBlock {
         else this.x=this.inx;
         if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
         else this.y=this.iny;
-        if (this.x===this.inx&&this.y===this.iny) { this.returning=false; this.frame=0; this.touch=false; this.moved=false; }
+        if (this.x===this.inx&&this.y===this.iny) { this.returning=false; this.frame=0; this.touch=false; this.moved=false; this.moving=false; }
       }
     } else {
       const a=Math.abs(this.x-this.inx)>this.ex&&this.movingWay===1;
