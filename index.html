@@ -570,7 +570,6 @@ class MBlock {
     if (this.my < 0) ctx.fillText('↑', sx+25, sy+14);
   }
   move(player) {
-    if (this.am && this.remoteControlled && !this.returning) return;
     if (this.touch) this.frame=0;
     if (this.am) {
       const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
@@ -596,7 +595,6 @@ class MBlock {
           else this.y=this.iny;
           if (this.x===this.inx && this.y===this.iny) {
             this.returning=false; this.frame=0; this.touch=false;
-            this.remoteControlled=false;
           }
         }
       }
