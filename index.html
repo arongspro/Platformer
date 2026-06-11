@@ -570,44 +570,62 @@ class MBlock {
     if (this.my < 0) ctx.fillText('↑', sx+25, sy+14);
   }
   move(player) {
-    if (this.am && this.remoteControlled && !this.returning) return;
     if (this.touch) this.frame=0;
     if (this.am) {
-      const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
-      const atEnd = Math.abs(this.x-this.inx)>=this.ex || Math.abs(this.y-this.iny)>=this.ey;
-      const atOrigin = distFromOrigin <= 1;
+      // ── 상태 머신: idle/moving → returning → idle ──
+      // 누구든 밟으면 전진, 끝 도달 + 아무도 없으면 복귀
+      const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
+      const distFromOrigin = Math.abs(this.x-this.inx) + Math.abs(this.y-this.iny);
+      const atEnd    = Math.abs(this.x-this.inx) >= this.ex || Math.abs(this.y-this.iny) >= this.ey;
+      const atOrigin = distFromOrigin <= speed;
 
-      // Trigger: player steps on it → start moving forward
-      if (this.touch && !this.activated) {
-        this.activated = true;
-        this.returning = false;
-      }
+      // 내 플레이어가 블록 위에 있는지
+      const myOnTop = this.standingOn;
 
-      if (this.activated) {
-        if (!this.returning) {
-          // Moving forward
-          this.x += this.mx; this.y += this.my;
-          if (this.touch && this.standingOn) {
-            // Drag player while riding
-            player.x += this.mx; player.y += this.my;
-          }
-          // Reached the end → reverse
-          if (atEnd) {
-            this.returning = true;
-          }
-        } else {
-          // Returning to origin
-          const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
-          if (Math.abs(this.x-this.inx)>speed) this.x += (this.inx>this.x?1:-1)*speed;
-          else this.x=this.inx;
-          if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
-          else this.y=this.iny;
-          // Back at origin → ready to go again
-          if (atOrigin) {
-            this.returning = false;
-            this.activated = false;
-            this.remoteControlled = false;
-          }
+      // 다른 플레이어가 블록 위에 있는지 (renderX/Y 우선 사용)
+      const othersOnTop = typeof otherPlayers !== 'undefined' &&
+        Object.values(otherPlayers).some(p => {
+          if (!p) return false;
+          const rx = p.renderX != null ? p.renderX : (p.x||0);
+          const ry = p.renderY != null ? p.renderY : (p.y||0);
+          return (rx+25) > this.x && (rx-25) < (this.x+50) && (ry+25) > this.y && (ry+25) < (this.y+8);
+        });
+      const anyoneOnTop = myOnTop || othersOnTop;
+
+      // 누가 200px 반경 내에 있는지
+      const myNear = Math.abs(player.x-this.x) + Math.abs(player.y-this.y) <= 200;
+      const othersNear = typeof otherPlayers !== 'undefined' &&
+        Object.values(otherPlayers).some(p => {
+          if (!p) return false;
+          const rx = p.renderX != null ? p.renderX : (p.x||0);
+          const ry = p.renderY != null ? p.renderY : (p.y||0);
+          return Math.abs(rx-this.x) + Math.abs(ry-this.y) <= 200;
+        });
+      const anyoneNear = myNear || othersNear;
+
+      if (!this.returning) {
+        // 전진: 누가 밟고 있고 끝에 도달 안 한 경우
+        if (anyoneOnTop && !atEnd) {
+          this.x += this.mx;
+          this.y += this.my;
+          if (myOnTop) { player.x += this.mx; player.y += this.my; }
+        }
+        // 끝 도달 + 아무도 없으면 복귀 시작
+        if (atEnd && !anyoneNear) {
+          this.returning = true;
+        }
+      } else {
+        // 복귀: 아무도 근처에 없을 때만 이동
+        if (!anyoneNear) {
+          if (Math.abs(this.x-this.inx) > speed) this.x += (this.inx > this.x ? 1 : -1) * speed;
+          else this.x = this.inx;
+          if (Math.abs(this.y-this.iny) > speed) this.y += (this.iny > this.y ? 1 : -1) * speed;
+          else this.y = this.iny;
+        }
+        // 원점 도달 시 리셋
+        if (atOrigin) {
+          this.x = this.inx; this.y = this.iny;
+          this.returning = false;
         }
       }
     } else {
@@ -1087,13 +1105,10 @@ function updateGame() {
     const prevX = mb.x;
     const prevY = mb.y;
     mb.check(player);
-    if (mb.touch) {
-      if (mb.am && mb.standingOn) mb.remoteControlled = false;
-      // Only drag delta for am=false blocks (am=true handled directly in move())
-      if (!mb.am) {
-        player.x += mb.x - prevX;
-        player.y += mb.y - prevY;
-      }
+    // am=false 블록: 자동이동 중 플레이어를 같이 드래그
+    if (!mb.am && mb.touch) {
+      player.x += mb.x - prevX;
+      player.y += mb.y - prevY;
     }
   });
 
@@ -1414,14 +1429,13 @@ function connectSocket() {
   // Receive am block positions ridden by other players → overwrite position only (no move())
   socket.on('am_blocks_patch', updates => {
     if (!moveblocks) return;
-    for (const { index, x, y, movingWay, returning } of updates) {
+    for (const { index, x, y, returning } of updates) {
       const mb = moveblocks[index];
       if (!mb || !mb.am) continue;
-      // Ignore blocks I'm currently controlling
-      if (mb.activated || mb.returning || mb.standingOn) continue;
+      // 내가 현재 밟고 있는 블록은 무시 (내 로컬이 권위)
+      if (mb.standingOn) continue;
       mb.x = x;
       mb.y = y;
-      mb.movingWay = movingWay ?? mb.movingWay;
       if (returning !== undefined) mb.returning = returning;
     }
   });
@@ -1455,9 +1469,9 @@ function sendMyState() {
     const amUpdates = moveblocks
       .map((mb, index) => {
         if (!mb.am) return null;
-        // Send position for blocks I activated (moving or returning)
-        if (!mb.activated && !mb.returning) return null;
-        return { index, x: mb.x, y: mb.y, movingWay: mb.movingWay, returning: mb.returning ?? false };
+        // 내가 밟고 있거나 복귀 중인 블록만 전송
+        if (!mb.standingOn && !mb.returning) return null;
+        return { index, x: mb.x, y: mb.y, returning: mb.returning ?? false };
       })
       .filter(Boolean);
     if (amUpdates.length > 0) socket.emit('am_blocks_update', amUpdates);
