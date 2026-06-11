@@ -476,7 +476,7 @@ class MBlock {
   constructor(x,y,mx,my,ex,ey,playerFlag) {
     this.x=x; this.y=y; this.mx=mx; this.my=my;
     this.ex=ex; this.ey=ey; this.inx=x; this.iny=y;
-    this.touch=false; this.frame=0; this.am=playerFlag; this.movingWay=1; this.standingOn=false; this.moved=false;
+    this.touch=false; this.frame=0; this.am=playerFlag; this.movingWay=1; this.standingOn=false; this.moved=false; this.remoteControlled=false;
   }
   draw(p) {
     const sx=this.x-p.scrollx, sy=this.y-p.scrolly;
