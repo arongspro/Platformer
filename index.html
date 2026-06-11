@@ -573,31 +573,29 @@ class MBlock {
     if (this.touch) this.frame=0;
     if (this.am) {
       const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
-      const withinBounds = Math.abs(this.x-this.inx)<this.ex && Math.abs(this.y-this.iny)<this.ey;
+      const atEnd = Math.abs(this.x-this.inx)>=this.ex || Math.abs(this.y-this.iny)>=this.ey;
+
       const playerNear = Math.abs(player.x-this.x)+Math.abs(player.y-this.y)<=150;
 
-      // 전진: 타고 있고 아직 끝에 안 도달했으면 이동
-      if (!this.returning && this.touch && withinBounds) {
+      // 전진: 플레이어가 위에 있고 끝 아님 → 무조건 (복귀 중이어도)
+      if (this.touch && !atEnd) {
+        this.returning=false;
         this.x+=this.mx; this.y+=this.my;
         player.x+=this.mx; player.y+=this.my;
       }
-
-      // 복귀: 안 타고 있고 원점에서 벗어나 있으면
-      if (!this.touch && distFromOrigin > 1) {
-        if (playerNear) {
-          this.returning=false; // 근처에 있으면 대기
-        } else {
-          this.returning=true;
-          const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
-          if (Math.abs(this.x-this.inx)>speed) this.x += (this.inx>this.x?1:-1)*speed;
-          else this.x=this.inx;
-          if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
-          else this.y=this.iny;
-          if (this.x===this.inx && this.y===this.iny) {
-            this.returning=false; this.frame=0; this.touch=false;
-          }
+      // 복귀: 안 밟고 있고, 150px 밖이고, 원점 아님
+      else if (!this.touch && !playerNear && distFromOrigin > 1) {
+        this.returning=true;
+        const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
+        if (Math.abs(this.x-this.inx)>speed) this.x += (this.inx>this.x?1:-1)*speed;
+        else this.x=this.inx;
+        if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
+        else this.y=this.iny;
+        if (this.x===this.inx && this.y===this.iny) {
+          this.returning=false; this.frame=0;
         }
       }
+      if (distFromOrigin <= 1) this.returning=false;
     } else {
       const a=Math.abs(this.x-this.inx)>this.ex&&this.movingWay===1;
       const b=Math.abs(this.y-this.iny)>this.ey&&this.movingWay===1;
@@ -1389,15 +1387,16 @@ function connectSocket() {
     positions.forEach((pos, i) => {
       const mb = moveblocks[i];
       if (!mb || pos === null) return;
-      // am block: skip if I'm riding (standingOn) or handling return
-      if (mb.am && (!mb.remoteControlled || mb.returning || mb.standingOn)) return;
-      mb.x = pos.x;
-      mb.y = pos.y;
-      mb.movingWay = pos.movingWay ?? mb.movingWay;
       if (mb.am) {
+        // 내가 밟고 있으면 무시, 아니면 서버 위치로 동기화
+        if (mb.standingOn) return;
+        mb.x = pos.x;
+        mb.y = pos.y;
         if (pos.returning !== undefined) mb.returning = pos.returning;
-        // Keep remoteControlled only if not standingOn and not returning
-        if (!mb.standingOn) mb.remoteControlled = true;
+      } else {
+        mb.x = pos.x;
+        mb.y = pos.y;
+        mb.movingWay = pos.movingWay ?? mb.movingWay;
       }
     });
     blockSynced = true;
@@ -1448,11 +1447,9 @@ function sendMyState() {
     const amUpdates = moveblocks
       .map((mb, index) => {
         if (!mb.am) return null;
-        // Blocks I'm directly riding OR handling return (remoteControlled=true but returning)
-        const isMine = mb.remoteControlled === false;
-        const isReturning = mb.returning;
-        if (!isMine && !isReturning) return null;
-        return { index, x: mb.x, y: mb.y, movingWay: mb.movingWay, returning: mb.returning ?? false };
+        // 내가 밟고 있거나 복귀 중일 때만 서버에 위치 전송
+        if (!mb.standingOn && !mb.returning) return null;
+        return { index, x: mb.x, y: mb.y, returning: mb.returning ?? false };
       })
       .filter(Boolean);
     if (amUpdates.length > 0) socket.emit('am_blocks_update', amUpdates);
