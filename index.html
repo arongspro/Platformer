@@ -385,6 +385,7 @@ class Spike {
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2&&!player.died) {
       this.frame=0; player.died=true; this.died=true;
       player.deathCount = (player.deathCount || 0) + 1;
+      shakeFrame = 18; shakeMag = 10;
       for (let i=0;i<40;i++) particles.push(new Particle(this.x+25,this.y+25,randFloat(-5,5),randFloat(-3,1),randInt(200,255),randInt(200,255),randInt(200,255),0.003));
       bblock.forEach(b => b.on=1);
     }
@@ -875,6 +876,7 @@ function formatTime(ms) {
 
 // ===================== GAME STATE =====================
 let state = 'menu';
+let shakeFrame = 0, shakeMag = 0;
 let player, blocks, spikes, flags, pads, moveblocks, dblocks, iblocks, bblocks, particles;
 let startTime = 0;
 let finalTime = 0;
@@ -1046,6 +1048,7 @@ function updateGame() {
         f.pframe=0; player.cpx=f.x; player.cpy=f.y;
         if (f.im) {
           finalTime = performance.now() - startTime;
+          shakeFrame = 25; shakeMag = 8;
           state='end';
           initEndButtons();
         }
@@ -1082,6 +1085,16 @@ function updateGame() {
 }
 
 function drawGame() {
+  // Screen shake
+  let sx = 0, sy = 0;
+  if (shakeFrame > 0) {
+    sx = (Math.random()-0.5) * shakeMag * 2;
+    sy = (Math.random()-0.5) * shakeMag * 2;
+    shakeFrame--;
+    shakeMag *= 0.85;
+  }
+  ctx.save();
+  ctx.translate(sx, sy);
   // Sky gradient background
   const skyG = ctx.createLinearGradient(0,0,0,480);
   skyG.addColorStop(0, '#0d1b2a');
@@ -1105,6 +1118,7 @@ function drawGame() {
   moveblocks.forEach(mb => { if (mb.allowed(player)) mb.draw(player); });
   particles.forEach(p => p.draw(player.scrollx, player.scrolly));
   player.draw();
+  ctx.restore();
 
   // HUD
   const elapsed = performance.now() - startTime;
