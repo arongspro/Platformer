@@ -502,19 +502,22 @@ class MBlock {
         this.x+=this.mx; this.y+=this.my; if(this.touch) player.x+=this.mx; this.moved=true;
       } else if (!withinBounds && this.moving) {
         this.moving=false;
-      } else if (this.returning || (this.moved && !this.moving && !playerNear && distFromOrigin>1)) {
-        // 플레이어가 근처에 있으면 복귀 일시 중단
-        if (playerNear && !this.touch) {
-          this.returning=false;
-          return;
+      }
+      // 복귀 조건: 원점에서 벗어나 있고, 타고 있지 않고, 플레이어가 멀면 복귀 시작
+      // moved 체크 제거 — 다른 플레이어가 밀어낸 경우도 포함
+      if (!this.touch && !this.moving && distFromOrigin > 1) {
+        if (playerNear) {
+          // 플레이어 근처면 복귀 대기
+          this.returning = false;
+        } else {
+          this.returning = true;
+          const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
+          if (Math.abs(this.x-this.inx)>speed) this.x += (this.inx>this.x?1:-1)*speed;
+          else this.x=this.inx;
+          if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
+          else this.y=this.iny;
+          if (this.x===this.inx&&this.y===this.iny) { this.returning=false; this.frame=0; this.touch=false; this.moved=false; this.moving=false; this.remoteControlled=false; }
         }
-        this.returning=true;
-        const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
-        if (Math.abs(this.x-this.inx)>speed) this.x += (this.inx>this.x?1:-1)*speed;
-        else this.x=this.inx;
-        if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
-        else this.y=this.iny;
-        if (this.x===this.inx&&this.y===this.iny) { this.returning=false; this.frame=0; this.touch=false; this.moved=false; this.moving=false; this.remoteControlled=false; }
       }
     } else {
       const a=Math.abs(this.x-this.inx)>this.ex&&this.movingWay===1;
