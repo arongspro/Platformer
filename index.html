@@ -1032,7 +1032,7 @@ function initEndButtons() {
 function tickMoveblocks() {
   if (!moveblocks || !player) return;
   moveblocks.forEach(mb => {
-    mb.move(player);
+    if (!mb.am) mb.move(player); // am=false(자동왕복)만 여기서 처리
   });
 }
 
@@ -1075,10 +1075,11 @@ function updateGame() {
     const prevX = mb.x;
     const prevY = mb.y;
     mb.check(player);
-    if (mb.touch) {
-      if (mb.am && mb.standingOn) mb.remoteControlled = false;
-      // Only drag delta for am=false blocks (am=true handled directly in move())
-      if (!mb.am) {
+    if (mb.am) {
+      mb.move(player); // check() 직후 호출 → this.touch가 정확히 세팅된 상태
+    } else {
+      // am=false: 자동이동 드래그
+      if (mb.touch) {
         player.x += mb.x - prevX;
         player.y += mb.y - prevY;
       }
