@@ -386,6 +386,7 @@ class Spike {
       this.frame=0; player.died=true; this.died=true;
       player.deathCount = (player.deathCount || 0) + 1;
       shakeFrame = 18; shakeMag = 10;
+      playSound('death');
       for (let i=0;i<40;i++) particles.push(new Particle(this.x+25,this.y+25,randFloat(-5,5),randFloat(-3,1),randInt(200,255),randInt(200,255),randInt(200,255),0.003));
       bblock.forEach(b => b.on=1);
     }
@@ -721,6 +722,7 @@ class Player {
         this.jumpmotion *= 0.8;
         this.cframe = 21;
         this.jumped = true;
+        if (this.jumpmotion > 0.5) playSound('jump');
       }
       this.cframe++;
       this.y += -this.dy;
@@ -877,6 +879,57 @@ function formatTime(ms) {
 // ===================== GAME STATE =====================
 let state = 'menu';
 let shakeFrame = 0, shakeMag = 0;
+
+// ── Sound Effects (Web Audio API) ─────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type) {
+  const ctx2 = audioCtx;
+  if (ctx2.state === 'suspended') ctx2.resume();
+  const o = ctx2.createOscillator();
+  const g = ctx2.createGain();
+  o.connect(g); g.connect(ctx2.destination);
+  const t = ctx2.currentTime;
+
+  if (type === 'jump') {
+    o.type = 'square';
+    o.frequency.setValueAtTime(300, t);
+    o.frequency.exponentialRampToValueAtTime(600, t + 0.12);
+    g.gain.setValueAtTime(0.15, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    o.start(t); o.stop(t + 0.15);
+  } else if (type === 'death') {
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(400, t);
+    o.frequency.exponentialRampToValueAtTime(80, t + 0.4);
+    g.gain.setValueAtTime(0.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    o.start(t); o.stop(t + 0.4);
+  } else if (type === 'checkpoint') {
+    o.type = 'sine';
+    o.frequency.setValueAtTime(520, t);
+    o.frequency.setValueAtTime(660, t + 0.1);
+    o.frequency.setValueAtTime(800, t + 0.2);
+    g.gain.setValueAtTime(0.18, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    o.start(t); o.stop(t + 0.35);
+  } else if (type === 'goal') {
+    // 팡파레
+    const freqs = [523, 659, 784, 1047];
+    freqs.forEach((f, i) => {
+      const o2 = ctx2.createOscillator();
+      const g2 = ctx2.createGain();
+      o2.connect(g2); g2.connect(ctx2.destination);
+      o2.type = 'sine';
+      const st = t + i * 0.1;
+      o2.frequency.setValueAtTime(f, st);
+      g2.gain.setValueAtTime(0.18, st);
+      g2.gain.exponentialRampToValueAtTime(0.001, st + 0.4);
+      o2.start(st); o2.stop(st + 0.4);
+    });
+    return;
+  }
+}
 let player, blocks, spikes, flags, pads, moveblocks, dblocks, iblocks, bblocks, particles;
 let startTime = 0;
 let finalTime = 0;
@@ -1049,8 +1102,11 @@ function updateGame() {
         if (f.im) {
           finalTime = performance.now() - startTime;
           shakeFrame = 25; shakeMag = 8;
+          playSound('goal');
           state='end';
           initEndButtons();
+        } else {
+          playSound('checkpoint');
         }
       }
       if (f.pframe < 10) {
