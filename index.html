@@ -503,8 +503,8 @@ class MBlock {
         this.x+=this.mx; this.y+=this.my;
         player.x+=this.mx; player.y+=this.my;
         this.moved=true;
-      } else if (this.moving && !withinBounds) {
-        // 범위 초과 → 이동 멈춤
+      } else if (this.moving && (!this.touch || !withinBounds)) {
+        // 플레이어가 내렸거나 범위 초과 → 이동 멈춤
         this.moving=false;
       }
 
