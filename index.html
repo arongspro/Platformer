@@ -575,8 +575,10 @@ class MBlock {
       const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
       const atEnd = Math.abs(this.x-this.inx)>=this.ex || Math.abs(this.y-this.iny)>=this.ey;
 
-      // 전진: 플레이어가 위에 있고 끝 아님 → 무조건 (복귀 중이어도)
-      if (this.touch && !atEnd) {
+      // 전진: 플레이어가 위에 있고(또는 막 떠난 직후 5프레임 유예) 끝 아님
+      if (this.touch) this.touchLinger = 5;
+      else if (this.touchLinger > 0) this.touchLinger--;
+      if ((this.touch || this.touchLinger > 0) && !atEnd) {
         this.returning=false;
         this.x+=this.mx; this.y+=this.my;
         player.x+=this.mx; player.y+=this.my;
