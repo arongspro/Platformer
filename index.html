@@ -1406,24 +1406,17 @@ function connectSocket() {
 
   socket.on('disconnect', () => { otherPlayers = {}; });
 
-  // Receive am block positions ridden by other players → overwrite position only (no move())
+  // Receive am block positions from other clients or server return movement
   socket.on('am_blocks_patch', updates => {
     if (!moveblocks) return;
-    for (const { index, x, y, movingWay, returning } of updates) {
+    for (const { index, x, y, returning } of updates) {
       const mb = moveblocks[index];
       if (!mb || !mb.am) continue;
-      // Ignore blocks I'm directly riding
+      // 내가 밟고 있는 블록은 내 로컬이 권위
       if (mb.standingOn) continue;
-      // returning signal: set flag only, don't overwrite position
-      if (returning === true && !mb.standingOn) {
-        mb.returning = true;
-        continue;
-      }
       mb.x = x;
       mb.y = y;
-      mb.movingWay = movingWay ?? mb.movingWay;
       if (returning !== undefined) mb.returning = returning;
-      if (!mb.standingOn) mb.remoteControlled = true;
     }
   });
 }
