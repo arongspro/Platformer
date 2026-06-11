@@ -577,7 +577,7 @@ class CheckPoint {
         player.x+=(20-(player.x-this.x))/40;
         player.y+=(20-(player.y-this.y))/40;
       }
-      return (player.x-this.x)**2+(player.y-this.y)**2<10;
+      return (player.x-this.x)**2+(player.y-this.y)**2<2500;
     } else {
       const x1=this.x+12.5,y1=this.y+12.5,x2=this.x+37.5,y2=this.y+37.5;
       const px1=player.x-player.width/2,px2=player.x+player.width/2;
