@@ -425,13 +425,14 @@ class Jump {
     const py1=player.y-player.height/2, py2=player.y+player.height/2;
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
       player.dy=15;
+      if (!this.springSnd) { playSound('spring'); this.springSnd=true; }
       for (let i=0;i<10;i++) {
         if (jumpParticleNumber<50) {
           jumpParticleNumber++;
           particles.push(new Particle(this.x+25,this.y+30,randFloat(-2,2),randFloat(-0.5,0.1),randInt(200,255),randInt(200,255),randInt(200,255),0.01,0.5));
         } else break;
       }
-    }
+    } else { this.springSnd = false; }
   }
   allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
 }
@@ -886,6 +887,7 @@ function formatTime(ms) {
 let state = 'menu';
 let shakeFrame = 0, shakeMag = 0;
 let flashAlpha = 0, flashR = 255, flashG = 0, flashB = 0;
+let splitTime = 0, splitDisplay = 0, splitLabel = '';
 
 // ── Sound Effects (Web Audio API) ─────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -920,7 +922,27 @@ function playSound(type) {
     g.gain.setValueAtTime(0.18, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
     o.start(t); o.stop(t + 0.35);
-  } else if (type === 'goal') {
+  } else if (type === 'spring') {
+    // 베이스 boing: 낮은 음에서 빠르게 올라감
+    o.type = 'sine';
+    o.frequency.setValueAtTime(80, t);
+    o.frequency.exponentialRampToValueAtTime(900, t + 0.06);
+    o.frequency.exponentialRampToValueAtTime(400, t + 0.18);
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    o.start(t); o.stop(t + 0.3);
+    // 배음 레이어로 탱글탱글한 느낌 추가
+    const o3 = audioCtx.createOscillator();
+    const g3 = audioCtx.createGain();
+    o3.connect(g3); g3.connect(audioCtx.destination);
+    o3.type = 'triangle';
+    o3.frequency.setValueAtTime(160, t);
+    o3.frequency.exponentialRampToValueAtTime(1800, t + 0.05);
+    o3.frequency.exponentialRampToValueAtTime(700, t + 0.15);
+    g3.gain.setValueAtTime(0.12, t);
+    g3.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    o3.start(t); o3.stop(t + 0.2);
+    return;
     // 팡파레
     const freqs = [523, 659, 784, 1047];
     freqs.forEach((f, i) => {
@@ -951,6 +973,7 @@ function initGame() {
   particles = [];
   endParticles = [];
   endFrame = 0;
+  splitTime = 0; splitDisplay = 0; splitLabel = '';
 
   for (let i = 0; i < MAP.length; i++) {
     for (let j = 0; j < MAP[0].length; j++) {
@@ -1106,6 +1129,12 @@ function updateGame() {
     if (f.allowed(player)) {
       if (f.check(player) && (f.x!==player.cpx || f.y!==player.cpy)) {
         f.pframe=0; player.cpx=f.x; player.cpy=f.y;
+        const now = performance.now() - startTime;
+        const split = now - splitTime;
+        splitTime = now;
+        splitLabel = f.im ? '🏁 GOAL!' : `🚩 SPLIT`;
+        splitDisplay = 180; // 3초 표시
+        window._lastSplit = split;
         if (f.im) {
           finalTime = performance.now() - startTime;
           shakeFrame = 25; shakeMag = 8;
@@ -1205,7 +1234,23 @@ function drawGame() {
   ctx.fillText('💀 ×' + player.deathCount, 10, 50);
   ctx.restore();
 
-  // Red flash overlay
+  // Split time display
+  if (splitDisplay > 0) {
+    splitDisplay--;
+    const alpha = splitDisplay < 40 ? splitDisplay / 40 : 1;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.beginPath(); ctx.roundRect(4, 80, 200, 44, 6); ctx.fill();
+    ctx.fillStyle = '#69f0ae';
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(splitLabel, 10, 84);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.fillText(formatTime(window._lastSplit || 0), 10, 100);
+    ctx.restore();
+  }
   if (flashAlpha > 0) {
     ctx.save();
     ctx.globalAlpha = flashAlpha;
