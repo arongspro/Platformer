@@ -9,7 +9,7 @@
   body { background: #0a0a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Courier New', monospace; }
   canvas { display: block; image-rendering: pixelated; }
 
-  /* ── 닉네임 입력 오버레이 ── */
+  /* ── Nickname Input Overlay ── */
   #nickOverlay {
     position: fixed; inset: 0;
     background: rgba(10,10,26,0.97);
@@ -44,7 +44,7 @@
   #nickOverlay button:hover { transform: scale(1.04); box-shadow: 0 0 20px #2980b9; }
   #nickOverlay .err { color: #ff6b6b; font-size: 14px; margin-top: 10px; min-height: 20px; }
 
-  /* ── 온라인 카운터 HUD ── */
+  /* ── Online Counter HUD ── */
   #onlineHud {
     position: fixed; top: 8px; right: 8px;
     background: rgba(0,0,0,0.55);
@@ -59,17 +59,17 @@
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 
-<!-- 닉네임 입력 -->
+<!-- Nickname Input -->
 <div id="nickOverlay">
   <h1>PLATFORMER</h1>
-  <p>닉네임을 입력하고 바로 플레이!</p>
-  <input id="nickInput" maxlength="12" placeholder="닉네임 (2~12자)" autocomplete="off" />
-  <button id="nickBtn">▶ 입장</button>
+  <p>Enter your nickname and play!</p>
+  <input id="nickInput" maxlength="12" placeholder="Nickname (2~12 chars)" autocomplete="off" />
+  <button id="nickBtn">▶ Enter</button>
   <div class="err" id="nickErr"></div>
 </div>
 
-<!-- 온라인 인원 표시 -->
-<div id="onlineHud">🟢 <span id="onlineCount">1</span>명 온라인</div>
+<!-- Online Player Count -->
+<div id="onlineHud">🟢 <span id="onlineCount">1</span> online</div>
 <canvas id="gameCanvas" width="640" height="480"></canvas>
 <script>
 const canvas = document.getElementById('gameCanvas');
@@ -280,7 +280,10 @@ function randFloat(a, b) { return Math.random() * (b - a) + a; }
 
 // ===================== GAME OBJECTS =====================
 class Blocks {
-  constructor(x, y) { this.x = x; this.y = y; }
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.faceTop=true; this.faceBottom=true; this.faceLeft=true; this.faceRight=true;
+  }
   draw(p) {
     const sx = this.x - p.scrollx, sy = this.y - p.scrolly;
     ctx.drawImage(blockImg, sx, sy, 50, 50);
@@ -288,12 +291,18 @@ class Blocks {
   check(player) {
     const {x1,y1,x2,y2,px1,px2,py1,py2} = overlap(this, player);
     if (px2>x1 && px1<x2 && py2>y1 && py1<y2) {
+      const INF = 9999;
       const left=px2-x1, right=x2-px1, top=py2-y1, bottom=y2-py1;
-      const min = Math.min(left,right,top,bottom);
-      if (min===top)   { if (player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
-      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
-      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
-      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+      const effTop    = this.faceTop    ? top    : INF;
+      const effLeft   = this.faceLeft   ? left   : INF;
+      const effRight  = this.faceRight  ? right  : INF;
+      const effBottom = this.faceBottom ? bottom : INF;
+      const min = Math.min(effTop, effLeft, effRight, effBottom);
+      if (min===INF) return;
+      if (min===effTop)    { if (player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
+      if (min===effLeft)   { player.x=x1-player.width/2; player.dx=0; }
+      if (min===effRight)  { player.x=x2+player.width/2; player.dx=0; }
+      if (min===effBottom) { player.y=y2+player.height/2+1; player.dy*=-1; }
     }
   }
   allowed(p) { const sx=this.x-p.scrollx, sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
@@ -361,7 +370,8 @@ class Jump {
 }
 
 class IBlock {
-  constructor(x, y, slip) { this.x=x; this.y=y; this.frame=0; this.slip=slip; }
+  constructor(x, y, slip) { this.x=x; this.y=y; this.frame=0; this.slip=slip;
+    this.faceTop=true; this.faceBottom=true; this.faceLeft=true; this.faceRight=true; }
   draw(p) {
     const sx = this.x-p.scrollx, sy = this.y-p.scrolly;
     ctx.drawImage(iceImg, sx, sy, 50, 50);
@@ -374,12 +384,18 @@ class IBlock {
   check(player) {
     const {x1,y1,x2,y2,px1,px2,py1,py2} = overlap(this, player);
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
+      const INF = 9999;
       const left=px2-x1+2, right=x2-px1+2, top=py2-y1, bottom=y2-py1;
-      const min=Math.min(left,right,top,bottom);
-      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.frame=0; } } else { this.frame++; }
-      if (min===left)  { player.x=x1-player.width/2;  if(min!==top) player.dx=0; }
-      if (min===right) { player.x=x2+player.width/2;  if(min!==top) player.dx=0; }
-      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+      const effTop    = this.faceTop    ? top    : INF;
+      const effLeft   = this.faceLeft   ? left   : INF;
+      const effRight  = this.faceRight  ? right  : INF;
+      const effBottom = this.faceBottom ? bottom : INF;
+      const min = Math.min(effTop, effLeft, effRight, effBottom);
+      if (min===INF) return;
+      if (min===effTop)    { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.frame=0; } } else { this.frame++; }
+      if (min===effLeft)   { player.x=x1-player.width/2;  if(min!==effTop) player.dx=0; }
+      if (min===effRight)  { player.x=x2+player.width/2;  if(min!==effTop) player.dx=0; }
+      if (min===effBottom) { player.y=y2+player.height/2+1; player.dy*=-1; }
       if (this.frame<10) player.slip=this.slip;
     }
   }
@@ -498,20 +514,20 @@ class MBlock {
       const playerNear = Math.abs(player.x-this.x)+Math.abs(player.y-this.y)<=150;
 
       if (!this.returning && this.touch && withinBounds) {
-        // 플레이어가 올라타 있고 범위 내 → 이동 + 플레이어 끌기
+        // Player riding and within bounds → move + drag player
         this.moving=true;
         this.x+=this.mx; this.y+=this.my;
         player.x+=this.mx; player.y+=this.my;
         this.moved=true;
       } else if (this.moving && (!this.touch || !withinBounds)) {
-        // 플레이어가 내렸거나 범위 초과 → 이동 멈춤
+        // Player dismounted or out of bounds → stop moving
         this.moving=false;
       }
 
-      // 복귀: 안 타고 있고, 안 움직이고, 원점 이탈 시
+      // Return: not riding, not moving, drifted from origin
       if (!this.touch && !this.moving && distFromOrigin > 1) {
         if (playerNear) {
-          this.returning=false; // 근처면 대기
+          this.returning=false; // Nearby: wait
         } else {
           this.returning=true;
           const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
@@ -780,7 +796,7 @@ const MAP = [
   [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],
   [1,3,0,0,0,1,0,0,1,0,0,0,0,0,0,1,1,1,0,0,0,3,0,1,6,0,0,0,1],
   [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,1,1,1,1,2,2,2,2,1],
-  [1,0,0,1,2,2,2,2,2,2,2,2,2,0,0,0,0,1,0,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,1,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1],
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,2,1,1,1,1,1,1,1,1,1,1],
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
 ];
@@ -853,6 +869,20 @@ function initGame() {
       else if (arrEq(v,h)) moveblocks.push(new MBlock(x,y,...h));
     }
   }
+  // ── Exposed face check: disable collision on faces blocked by solid neighbors ──
+  const _solid = new Set([1, 7, 8]);
+  const _isSolid = (r, c) => {
+    if (r<0||r>=MAP.length||c<0||c>=MAP[0].length) return false;
+    return _solid.has(MAP[r][c]);
+  };
+  [...blocks, ...iblocks].forEach(b => {
+    const col = Math.round(b.x/50), row = Math.round(b.y/50);
+    b.faceTop    = !_isSolid(row-1, col);
+    b.faceBottom = !_isSolid(row+1, col);
+    b.faceLeft   = !_isSolid(row,   col-1);
+    b.faceRight  = !_isSolid(row,   col+1);
+  });
+
   startTime = performance.now();
 }
 
@@ -929,8 +959,8 @@ function initEndButtons() {
 }
 
 // ===================== GAME LOOP =====================
-// 블록 위치 계산 - 서버와 동일한 16ms 틱 기준으로 호출됨
-// delta time 누적으로 fps에 무관하게 모든 클라이언트 동일한 위치 보장
+// Block position update - called on 16ms tick to match server
+// delta time accumulation ensures identical positions across all clients regardless of fps
 function tickMoveblocks() {
   if (!moveblocks || !player) return;
   moveblocks.forEach(mb => {
@@ -972,14 +1002,14 @@ function updateGame() {
   });
 
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
-  // 무빙블록 충돌/탑승 처리 (위치 계산은 tickMoveblocks에서 16ms 틱으로 수행)
+  // Moving block collision/riding (position calc is done in tickMoveblocks on 16ms tick)
   moveblocks.forEach(mb => {
     const prevX = mb.x;
     const prevY = mb.y;
     mb.check(player);
     if (mb.touch) {
       if (mb.am && mb.standingOn) mb.remoteControlled = false;
-      // am=false 블록만 델타 끌기 (am=true는 move()에서 직접 처리)
+      // Only drag delta for am=false blocks (am=true handled directly in move())
       if (!mb.am) {
         player.x += mb.x - prevX;
         player.y += mb.y - prevY;
@@ -1191,17 +1221,17 @@ window.addEventListener('keydown', e => {
 // ===================== START =====================
 initMenu();
 let lastLoopTime = null;
-let blockTickAccum = 0;  // 누적 시간 (ms)
-const BLOCK_TICK_MS = 16; // 서버와 동일한 틱 간격
+let blockTickAccum = 0;  // Accumulated time (ms)
+const BLOCK_TICK_MS = 16; // Same tick interval as server
 
 function loop(timestamp) {
   if (lastLoopTime === null) lastLoopTime = timestamp;
-  const delta = Math.min(timestamp - lastLoopTime, 100); // 최대 100ms 캡 (탭 전환 등 방지)
+  const delta = Math.min(timestamp - lastLoopTime, 100); // max 100ms cap (prevents jump on tab switch)
   lastLoopTime = timestamp;
 
   if (state === 'playing') {
     blockTickAccum += delta;
-    // 16ms 단위로 블록 틱 처리 → 60fps/30fps/144fps 모두 동일한 위치
+    // Process block ticks in 16ms units → same position at 60/30/144fps
     while (blockTickAccum >= BLOCK_TICK_MS) {
       tickMoveblocks();
       blockTickAccum -= BLOCK_TICK_MS;
@@ -1224,16 +1254,16 @@ let myUid      = null;
 let myNickname = null;
 let otherPlayers = {};   // uid → { x, y, scrollx, scrolly, nickname, walkFrame, died, ts }
 
-// ── 닉네임 입력 처리 ──────────────────────────────────
+// ── Nickname Input Handler ──────────────────────────────────
 document.getElementById('nickBtn').addEventListener('click', tryEnter);
 document.getElementById('nickInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryEnter(); });
 
 function tryEnter() {
   const nick = document.getElementById('nickInput').value.trim();
   const err  = document.getElementById('nickErr');
-  if (nick.length < 2)  { err.textContent = '닉네임은 2자 이상이어야 합니다.'; return; }
-  if (nick.length > 12) { err.textContent = '닉네임은 12자 이하여야 합니다.'; return; }
-  if (!/^[a-zA-Z0-9가-힣_\-]+$/.test(nick)) { err.textContent = '특수문자는 사용할 수 없습니다.'; return; }
+  if (nick.length < 2)  { err.textContent = 'Nickname must be at least 2 characters.'; return; }
+  if (nick.length > 12) { err.textContent = 'Nickname must be 12 characters or fewer.'; return; }
+  if (!/^[a-zA-Z0-9가-힣_\-]+$/.test(nick)) { err.textContent = 'Special characters are not allowed.'; return; }
   err.textContent = '';
   myNickname = nick;
   myUid = 'guest_' + Math.random().toString(36).slice(2, 10);
@@ -1242,7 +1272,7 @@ function tryEnter() {
   connectSocket();
 }
 
-// ── 소켓 연결 ─────────────────────────────────────────
+// ── Socket Connection ─────────────────────────────────────────
 function connectSocket() {
   socket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
 
@@ -1254,11 +1284,11 @@ function connectSocket() {
       pixels:   [],
       kills: 0, deaths: 0, rating: 0,
     });
-    // heartbeat 30초마다
+    // heartbeat every 30 seconds
     setInterval(() => socket.emit('heartbeat'), 30000);
   });
 
-  // 전체 룸 상태 수신 → 내 uid 제외하고 저장
+  // Receive full room state → store excluding my uid
   socket.on('state_update', stateMap => {
     const now = Date.now();
     for (const [uid, data] of Object.entries(stateMap)) {
@@ -1267,37 +1297,37 @@ function connectSocket() {
       otherPlayers[uid] = {
         ...data,
         ts: now,
-        // 보간용 현재 렌더 위치 (이전 값 유지, 없으면 수신값으로 초기화)
+        // Current render position for interpolation (keep previous value, init to received if new)
         renderX: prev ? prev.renderX : data.x,
         renderY: prev ? prev.renderY : data.y,
       };
     }
-    // 오래된 플레이어 제거 (5초 이상 업데이트 없으면)
+    // Remove stale players (no update for 5+ seconds)
     for (const uid of Object.keys(otherPlayers)) {
       if (now - otherPlayers[uid].ts > 5000) delete otherPlayers[uid];
     }
   });
 
-  // 온라인 인원 수
+  // Online player count
   socket.on('presence_update', list => {
     document.getElementById('onlineCount').textContent = list.length;
   });
 
-  // 서버에서 블록 상태 수신
+  // Receive block state from server
   let blockSynced = false;
   socket.on('blocks_update', positions => {
     if (!moveblocks) return;
     positions.forEach((pos, i) => {
       const mb = moveblocks[i];
       if (!mb || pos === null) return;
-      // am 블록: 내가 올라타 있거나(standingOn) 복귀 계산 중이면 덮어쓰지 않음
+      // am block: skip if I'm riding (standingOn) or handling return
       if (mb.am && (!mb.remoteControlled || mb.returning || mb.standingOn)) return;
       mb.x = pos.x;
       mb.y = pos.y;
       mb.movingWay = pos.movingWay ?? mb.movingWay;
       if (mb.am) {
         if (pos.returning !== undefined) mb.returning = pos.returning;
-        // standingOn도 아니고 returning도 아닌 경우에만 remoteControlled 유지
+        // Keep remoteControlled only if not standingOn and not returning
         if (!mb.standingOn) mb.remoteControlled = true;
       }
     });
@@ -1306,15 +1336,15 @@ function connectSocket() {
 
   socket.on('disconnect', () => { otherPlayers = {}; });
 
-  // 다른 플레이어가 올라탄 am 블록 위치 수신 → 위치만 덮어씀 (move()는 안 함)
+  // Receive am block positions ridden by other players → overwrite position only (no move())
   socket.on('am_blocks_patch', updates => {
     if (!moveblocks) return;
     for (const { index, x, y, movingWay, returning } of updates) {
       const mb = moveblocks[index];
       if (!mb || !mb.am) continue;
-      // 내가 직접 올라타고 있는 블록은 무시
+      // Ignore blocks I'm directly riding
       if (mb.standingOn) continue;
-      // returning 신호: 위치 덮어쓰지 않고 플래그만 세팅
+      // returning signal: set flag only, don't overwrite position
       if (returning === true && !mb.standingOn) {
         mb.returning = true;
         continue;
@@ -1328,7 +1358,7 @@ function connectSocket() {
   });
 }
 
-// ── 내 상태 전송 (게임 루프에서 호출) ─────────────────
+// ── Send My State (called from game loop) ─────────────────
 let lastSendTs = 0;
 const SEND_INTERVAL = 50; // 20fps
 
@@ -1351,12 +1381,12 @@ function sendMyState() {
     gameState: state,
   });
 
-  // 내가 올라타고 있거나 복귀 계산 중인 am 블록 위치를 서버로 전송
+  // Send am block positions I'm riding or handling return for
   if (moveblocks) {
     const amUpdates = moveblocks
       .map((mb, index) => {
         if (!mb.am) return null;
-        // 내가 직접 올라탄 블록 OR 복귀 계산 담당(remoteControlled=true지만 returning)
+        // Blocks I'm directly riding OR handling return (remoteControlled=true but returning)
         const isMine = mb.remoteControlled === false;
         const isReturning = mb.returning;
         if (!isMine && !isReturning) return null;
@@ -1367,7 +1397,7 @@ function sendMyState() {
   }
 }
 
-// ── 다른 플레이어 렌더링 ──────────────────────────────
+// ── Render Other Players ──────────────────────────────
 function drawOtherPlayers() {
   if (!player) return;
   sendMyState();
@@ -1375,7 +1405,7 @@ function drawOtherPlayers() {
   for (const data of Object.values(otherPlayers)) {
     if (!data || data.gameState === 'menu') continue;
 
-    // 보간: renderX/Y를 목표값(data.x/y)으로 부드럽게 이동
+    // Interpolation: smoothly move renderX/Y toward target (data.x/y)
     data.renderX += (data.x - data.renderX) * 0.25;
     data.renderY += (data.y - data.renderY) * 0.25;
 
@@ -1384,7 +1414,7 @@ function drawOtherPlayers() {
     const sx = data.renderX - w/2 - player.scrollx;
     const sy = data.renderY - h/2 - player.scrolly;
 
-    // 화면 밖이면 스킵
+    // Skip if off screen
     if (sx < -60 || sx > 700 || sy < -60 || sy > 540) continue;
 
     const sprite = (Math.floor((data.walkFrame||0)/8) % 2 === 0) ? playerImg0 : playerImg1;
@@ -1392,12 +1422,12 @@ function drawOtherPlayers() {
     ctx.save();
     ctx.globalAlpha = data.died ? 0.25 : 0.55;
 
-    // 색조 오버레이로 구분 (주황빛)
+    // Hue overlay to distinguish other players (orange tint)
     ctx.filter = 'hue-rotate(40deg) saturate(1.5)';
     ctx.drawImage(sprite, sx, sy, 50, 50);
     ctx.filter = 'none';
 
-    // 닉네임 태그
+    // Nickname tag
     ctx.globalAlpha = data.died ? 0.2 : 0.85;
     const tag = data.nickname || '???';
     ctx.font = 'bold 11px "Courier New", monospace';
@@ -1413,17 +1443,17 @@ function drawOtherPlayers() {
   }
 }
 
-// ── 클리어 시 서버에 기록 저장 ────────────────────────
-// updateGame() 안에서 state='end' 세팅 직전에 호출되도록
-// → initEndButtons() 를 오버라이드해서 훅 삽입
+// ── Save clear record to server ────────────────────────
+// Called just before state='end' is set inside updateGame()
+// → Hook inserted by overriding initEndButtons()
 const _origInitEndButtons = initEndButtons;
 window.initEndButtons = function() {
   _origInitEndButtons();
   reportClear();
-  setTimeout(loadRanking, 800);  // 저장 후 랭킹 갱신
+  setTimeout(loadRanking, 800);  // Refresh ranking after save
 };
 
-// ── 랭킹 데이터 ───────────────────────────────────────
+// ── Ranking Data ───────────────────────────────────────
 let rankingData = [];
 async function loadRanking() {
   try {
@@ -1432,9 +1462,9 @@ async function loadRanking() {
   } catch(e) { rankingData = []; }
 }
 
-// endButtons 에 랭킹 버튼 추가 (initEndButtons 오버라이드)
-const __orig = window.initEndButtons;  // 위에서 이미 오버라이드됨
-// drawEnd 를 오버라이드해서 랭킹 패널 추가
+// Add ranking button to endButtons (initEndButtons override)
+const __orig = window.initEndButtons;  // already overridden above
+// Override drawEnd to add ranking panel
 const _origDrawEnd = drawEnd;
 window.drawEnd = function() {
   _origDrawEnd();
@@ -1494,19 +1524,19 @@ async function reportClear() {
   const clearTime = Math.round(finalTime / 1000);
   const grade     = getGrade(score).grade;
 
-  // REST API로 기록 저장
+  // Save record via REST API
   try {
     await fetch(`${SERVER_URL}/api/platformer/score`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nickname: myNickname, score, deaths, clearTime }),
     });
-  } catch(e) { console.warn('기록 저장 실패', e); }
+  } catch(e) { console.warn('Failed to save record', e); }
 
-  // 소켓 채팅으로 클리어 알림 (다른 플레이어에게)
+  // Notify other players via socket chat
   if (socket) {
     socket.emit('chat', {
-      text: `🏁 ${myNickname} 클리어! [${grade}] ${formatTime(finalTime)} / 💀${deaths}`,
+      text: `🏁 ${myNickname} cleared! [${grade}] ${formatTime(finalTime)} / 💀${deaths}`,
     });
   }
 }
