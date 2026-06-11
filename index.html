@@ -386,6 +386,7 @@ class Spike {
       this.frame=0; player.died=true; this.died=true;
       player.deathCount = (player.deathCount || 0) + 1;
       shakeFrame = 18; shakeMag = 10;
+      flashAlpha = 0.45; flashR=255; flashG=0; flashB=0;
       playSound('death');
       for (let i=0;i<40;i++) particles.push(new Particle(this.x+25,this.y+25,randFloat(-5,5),randFloat(-3,1),randInt(200,255),randInt(200,255),randInt(200,255),0.003));
       bblock.forEach(b => b.on=1);
@@ -614,22 +615,27 @@ class MBlock {
 }
 
 class CheckPoint {
-  constructor(x, y, im=0) { this.x=x; this.y=y; this.im=im; this.pframe=0; }
+  constructor(x, y, im=0) { this.x=x; this.y=y; this.im=im; this.pframe=0; this.waveFrame=0; }
   draw(p) {
     const sx=this.x-p.scrollx, sy=this.y-p.scrolly;
+    this.waveFrame++;
+    const wave = Math.sin(this.waveFrame * 0.12) * 6;
     // Flag pole
     ctx.strokeStyle=this.im?'#ffd700':'#cccccc'; ctx.lineWidth=4;
     ctx.shadowColor=this.im?'#ffd700':'#fff'; ctx.shadowBlur=this.im?10:0;
     ctx.beginPath(); ctx.moveTo(sx+25,sy+50); ctx.lineTo(sx+25,sy); ctx.stroke();
     ctx.shadowBlur=0;
-    // Flag
+    // Flag (wavy)
     const fc = this.im ? '#ffd700' : '#ffffff';
     ctx.fillStyle = fc;
-    ctx.beginPath(); ctx.moveTo(sx+25,sy); ctx.lineTo(sx+50,sy+12.5); ctx.lineTo(sx+25,sy+25); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(sx+25, sy);
+    ctx.bezierCurveTo(sx+35+wave, sy+5, sx+40+wave, sy+15, sx+25, sy+25);
+    ctx.closePath(); ctx.fill();
     if (this.im) {
       ctx.fillStyle = '#ff6600';
-      ctx.font = 'bold 12px Arial'; ctx.textAlign='center';
-      ctx.fillText('GOAL', sx+38, sy+16);
+      ctx.font = 'bold 10px Arial'; ctx.textAlign='center';
+      ctx.fillText('GOAL', sx+35+wave*0.5, sy+16);
     }
   }
   check(player) {
@@ -879,6 +885,7 @@ function formatTime(ms) {
 // ===================== GAME STATE =====================
 let state = 'menu';
 let shakeFrame = 0, shakeMag = 0;
+let flashAlpha = 0, flashR = 255, flashG = 0, flashB = 0;
 
 // ── Sound Effects (Web Audio API) ─────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1196,6 +1203,46 @@ function drawGame() {
   ctx.font = 'bold 18px "Courier New", monospace';
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   ctx.fillText('💀 ×' + player.deathCount, 10, 50);
+  ctx.restore();
+
+  // Red flash overlay
+  if (flashAlpha > 0) {
+    ctx.save();
+    ctx.globalAlpha = flashAlpha;
+    ctx.fillStyle = `rgb(${flashR},${flashG},${flashB})`;
+    ctx.fillRect(0, 0, 640, 480);
+    ctx.restore();
+    flashAlpha = Math.max(0, flashAlpha - 0.03);
+  }
+
+  // Minimap
+  const mmW=80, mmH=120, mmX=640-mmW-8, mmY=8;
+  const mapH = MAP.length * 50, mapW = MAP[0].length * 50;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.strokeStyle = 'rgba(0,168,232,0.4)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.roundRect(mmX, mmY, mmW, mmH, 5); ctx.fill(); ctx.stroke();
+  // Map blocks (sampled)
+  const scaleX = mmW / mapW, scaleY = mmH / mapH;
+  ctx.fillStyle = 'rgba(100,130,160,0.7)';
+  for (let r=0; r<MAP.length; r++) {
+    for (let c=0; c<MAP[r].length; c++) {
+      const v = MAP[r][c];
+      if (v===1||v===2) {
+        ctx.fillRect(mmX + c*50*scaleX, mmY + r*50*scaleY, 50*scaleX+0.5, 50*scaleY+0.5);
+      }
+    }
+  }
+  // Checkpoint position
+  ctx.fillStyle = '#ffd700';
+  const cpx = mmX + player.cpx * scaleX;
+  const cpy = mmY + player.cpy * scaleY;
+  ctx.fillRect(cpx-2, cpy-2, 4, 4);
+  // Player position
+  ctx.fillStyle = '#00e5ff';
+  const px2 = mmX + player.x * scaleX;
+  const py2 = mmY + player.y * scaleY;
+  ctx.beginPath(); ctx.arc(px2, py2, 2.5, 0, Math.PI*2); ctx.fill();
   ctx.restore();
 }
 
