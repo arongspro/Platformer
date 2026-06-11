@@ -1290,12 +1290,16 @@ function connectSocket() {
     positions.forEach((pos, i) => {
       const mb = moveblocks[i];
       if (!mb || pos === null) return;
-      // am 블록은 내가 현재 올라타고 있으면(remoteControlled=false && standingOn) 덮어쓰지 않음
-      if (mb.am && mb.remoteControlled === false && mb.standingOn) return;
+      // am 블록: 내가 올라타 있거나(standingOn) 복귀 계산 중이면 덮어쓰지 않음
+      if (mb.am && (!mb.remoteControlled || mb.returning || mb.standingOn)) return;
       mb.x = pos.x;
       mb.y = pos.y;
       mb.movingWay = pos.movingWay ?? mb.movingWay;
-      if (mb.am) mb.remoteControlled = true; // 서버 위치로 동기화 → 원격 제어 상태
+      if (mb.am) {
+        if (pos.returning !== undefined) mb.returning = pos.returning;
+        // standingOn도 아니고 returning도 아닌 경우에만 remoteControlled 유지
+        if (!mb.standingOn) mb.remoteControlled = true;
+      }
     });
     blockSynced = true;
   });
@@ -1308,19 +1312,18 @@ function connectSocket() {
     for (const { index, x, y, movingWay, returning } of updates) {
       const mb = moveblocks[index];
       if (!mb || !mb.am) continue;
-      // 내가 직접 올라타고 있는 블록은 무시 (내 로컬 계산이 정답)
-      if (mb.remoteControlled === false && mb.standingOn) continue;
-      // returning 신호만 온 경우(서버가 복귀 시작 알림): 위치는 현재값 유지, returning 플래그만 세팅
+      // 내가 직접 올라타고 있는 블록은 무시
+      if (mb.standingOn) continue;
+      // returning 신호: 위치 덮어쓰지 않고 플래그만 세팅
       if (returning === true && !mb.standingOn) {
         mb.returning = true;
-        // 복귀는 클라이언트 move()에서 직접 처리하므로 위치 덮어쓰지 않음
         continue;
       }
       mb.x = x;
       mb.y = y;
       mb.movingWay = movingWay ?? mb.movingWay;
       if (returning !== undefined) mb.returning = returning;
-      mb.remoteControlled = true;
+      if (!mb.standingOn) mb.remoteControlled = true;
     }
   });
 }
