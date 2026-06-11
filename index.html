@@ -490,33 +490,39 @@ class MBlock {
     if (this.my < 0) ctx.fillText('↑', sx+25, sy+14);
   }
   move(player) {
-    // 원격 제어 블록: 다른 플레이어가 올라탄 am 블록 → returning 중이 아니면 로컬 계산 안 함
     if (this.am && this.remoteControlled && !this.returning) return;
     if (this.touch) this.frame=0;
     if (this.am) {
       const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
-      const withinBounds = Math.abs(this.x-this.inx)<this.ex&&Math.abs(this.y-this.iny)<this.ey;
+      const withinBounds = Math.abs(this.x-this.inx)<this.ex && Math.abs(this.y-this.iny)<this.ey;
       const playerNear = Math.abs(player.x-this.x)+Math.abs(player.y-this.y)<=150;
-      if (!this.returning && (this.touch || this.moving) && withinBounds) {
+
+      if (!this.returning && this.touch && withinBounds) {
+        // 플레이어가 올라타 있고 범위 내 → 이동 + 플레이어 끌기
         this.moving=true;
-        this.x+=this.mx; this.y+=this.my; if(this.touch) player.x+=this.mx; this.moved=true;
-      } else if (!withinBounds && this.moving) {
+        this.x+=this.mx; this.y+=this.my;
+        player.x+=this.mx; player.y+=this.my;
+        this.moved=true;
+      } else if (this.moving && !withinBounds) {
+        // 범위 초과 → 이동 멈춤
         this.moving=false;
       }
-      // 복귀 조건: 원점에서 벗어나 있고, 타고 있지 않고, 플레이어가 멀면 복귀 시작
-      // moved 체크 제거 — 다른 플레이어가 밀어낸 경우도 포함
+
+      // 복귀: 안 타고 있고, 안 움직이고, 원점 이탈 시
       if (!this.touch && !this.moving && distFromOrigin > 1) {
         if (playerNear) {
-          // 플레이어 근처면 복귀 대기
-          this.returning = false;
+          this.returning=false; // 근처면 대기
         } else {
-          this.returning = true;
+          this.returning=true;
           const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
           if (Math.abs(this.x-this.inx)>speed) this.x += (this.inx>this.x?1:-1)*speed;
           else this.x=this.inx;
           if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
           else this.y=this.iny;
-          if (this.x===this.inx&&this.y===this.iny) { this.returning=false; this.frame=0; this.touch=false; this.moved=false; this.moving=false; this.remoteControlled=false; }
+          if (this.x===this.inx && this.y===this.iny) {
+            this.returning=false; this.frame=0; this.touch=false;
+            this.moved=false; this.moving=false; this.remoteControlled=false;
+          }
         }
       }
     } else {
@@ -972,11 +978,12 @@ function updateGame() {
     const prevY = mb.y;
     mb.check(player);
     if (mb.touch) {
-      // am 블록은 실제로 위에 올라선 경우(standingOn)에만 내 로컬 계산으로 전환
-      // 옆/아래 충돌만으로는 상대방이 타고 있는 블록의 소유권을 빼앗지 않음
       if (mb.am && mb.standingOn) mb.remoteControlled = false;
-      player.x += mb.x - prevX;
-      player.y += mb.y - prevY;
+      // am=false 블록만 델타 끌기 (am=true는 move()에서 직접 처리)
+      if (!mb.am) {
+        player.x += mb.x - prevX;
+        player.y += mb.y - prevY;
+      }
     }
   });
 
