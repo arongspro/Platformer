@@ -574,34 +574,39 @@ class MBlock {
     if (this.touch) this.frame=0;
     if (this.am) {
       const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
-      const withinBounds = Math.abs(this.x-this.inx)<this.ex && Math.abs(this.y-this.iny)<this.ey;
-      const playerNear = Math.abs(player.x-this.x)+Math.abs(player.y-this.y)<=150;
+      const atEnd = Math.abs(this.x-this.inx)>=this.ex || Math.abs(this.y-this.iny)>=this.ey;
+      const atOrigin = distFromOrigin <= 1;
 
-      if (!this.returning && this.touch && withinBounds) {
-        // Player riding and within bounds → move + drag player
-        this.moving=true;
-        this.x+=this.mx; this.y+=this.my;
-        player.x+=this.mx; player.y+=this.my;
-        this.moved=true;
-      } else if (this.moving && (!this.touch || !withinBounds)) {
-        // Player dismounted or out of bounds → stop moving
-        this.moving=false;
+      // Trigger: player steps on it → start moving forward
+      if (this.touch && !this.activated) {
+        this.activated = true;
+        this.returning = false;
       }
 
-      // Return: not riding, not moving, drifted from origin
-      if (!this.touch && !this.moving && distFromOrigin > 1) {
-        if (playerNear) {
-          this.returning=false; // Nearby: wait
+      if (this.activated) {
+        if (!this.returning) {
+          // Moving forward
+          this.x += this.mx; this.y += this.my;
+          if (this.touch && this.standingOn) {
+            // Drag player while riding
+            player.x += this.mx; player.y += this.my;
+          }
+          // Reached the end → reverse
+          if (atEnd) {
+            this.returning = true;
+          }
         } else {
-          this.returning=true;
+          // Returning to origin
           const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
           if (Math.abs(this.x-this.inx)>speed) this.x += (this.inx>this.x?1:-1)*speed;
           else this.x=this.inx;
           if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
           else this.y=this.iny;
-          if (this.x===this.inx && this.y===this.iny) {
-            this.returning=false; this.frame=0; this.touch=false;
-            this.moved=false; this.moving=false; this.remoteControlled=false;
+          // Back at origin → ready to go again
+          if (atOrigin) {
+            this.returning = false;
+            this.activated = false;
+            this.remoteControlled = false;
           }
         }
       }
@@ -1395,16 +1400,11 @@ function connectSocket() {
     positions.forEach((pos, i) => {
       const mb = moveblocks[i];
       if (!mb || pos === null) return;
-      // am block: skip if I'm riding (standingOn) or handling return
-      if (mb.am && (!mb.remoteControlled || mb.returning || mb.standingOn)) return;
+      // am block: skip if I'm currently controlling it
+      if (mb.am && (mb.activated || mb.returning)) return;
       mb.x = pos.x;
       mb.y = pos.y;
       mb.movingWay = pos.movingWay ?? mb.movingWay;
-      if (mb.am) {
-        if (pos.returning !== undefined) mb.returning = pos.returning;
-        // Keep remoteControlled only if not standingOn and not returning
-        if (!mb.standingOn) mb.remoteControlled = true;
-      }
     });
     blockSynced = true;
   });
@@ -1417,18 +1417,12 @@ function connectSocket() {
     for (const { index, x, y, movingWay, returning } of updates) {
       const mb = moveblocks[index];
       if (!mb || !mb.am) continue;
-      // Ignore blocks I'm directly riding
-      if (mb.standingOn) continue;
-      // returning signal: set flag only, don't overwrite position
-      if (returning === true && !mb.standingOn) {
-        mb.returning = true;
-        continue;
-      }
+      // Ignore blocks I'm currently controlling
+      if (mb.activated || mb.returning || mb.standingOn) continue;
       mb.x = x;
       mb.y = y;
       mb.movingWay = movingWay ?? mb.movingWay;
       if (returning !== undefined) mb.returning = returning;
-      if (!mb.standingOn) mb.remoteControlled = true;
     }
   });
 }
@@ -1461,10 +1455,8 @@ function sendMyState() {
     const amUpdates = moveblocks
       .map((mb, index) => {
         if (!mb.am) return null;
-        // Blocks I'm directly riding OR handling return (remoteControlled=true but returning)
-        const isMine = mb.remoteControlled === false;
-        const isReturning = mb.returning;
-        if (!isMine && !isReturning) return null;
+        // Send position for blocks I activated (moving or returning)
+        if (!mb.activated && !mb.returning) return null;
         return { index, x: mb.x, y: mb.y, movingWay: mb.movingWay, returning: mb.returning ?? false };
       })
       .filter(Boolean);
