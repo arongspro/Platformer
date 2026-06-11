@@ -581,7 +581,7 @@ class MBlock {
         this.x+=this.mx; this.y+=this.my;
         player.x+=this.mx; player.y+=this.my;
       }
-      // 복귀: 서버가 am_blocks_patch로 위치를 보내줌
+      // 복귀: 서버가 am_blocks_patch로 위치를 보내줌 (150px 밖일 때만)
       if (distFromOrigin <= 1) this.returning=false;
     } else {
       const a=Math.abs(this.x-this.inx)>this.ex&&this.movingWay===1;
