@@ -390,7 +390,7 @@ class Spike {
     }
     if (this.died) {
       this.frame++;
-      if (this.frame>60) { this.died=false; player.died=false; player.x=player.cpx; player.y=player.cpy; player.dy=0; }
+      if (this.frame>60) { this.died=false; player.died=false; player.x=player.cpx; player.y=player.cpy; player.dy=0; if (moveblocks) moveblocks.forEach(mb => { if (mb.am) { mb.touch=false; mb.standingOn=false; } }); }
     }
   }
   allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
