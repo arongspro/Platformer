@@ -575,26 +575,13 @@ class MBlock {
       const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
       const atEnd = Math.abs(this.x-this.inx)>=this.ex || Math.abs(this.y-this.iny)>=this.ey;
 
-      const playerNear = Math.abs(player.x-this.x)+Math.abs(player.y-this.y)<=150;
-
       // 전진: 플레이어가 위에 있고 끝 아님 → 무조건 (복귀 중이어도)
       if (this.touch && !atEnd) {
         this.returning=false;
         this.x+=this.mx; this.y+=this.my;
         player.x+=this.mx; player.y+=this.my;
       }
-      // 복귀: 안 밟고 있고, 150px 밖이고, 원점 아님
-      else if (!this.touch && !playerNear && distFromOrigin > 1) {
-        this.returning=true;
-        const speed = Math.max(Math.abs(this.mx)||1, Math.abs(this.my)||1);
-        if (Math.abs(this.x-this.inx)>speed) this.x += (this.inx>this.x?1:-1)*speed;
-        else this.x=this.inx;
-        if (Math.abs(this.y-this.iny)>speed) this.y += (this.iny>this.y?1:-1)*speed;
-        else this.y=this.iny;
-        if (this.x===this.inx && this.y===this.iny) {
-          this.returning=false; this.frame=0;
-        }
-      }
+      // 복귀: 서버가 am_blocks_patch로 위치를 보내줌
       if (distFromOrigin <= 1) this.returning=false;
     } else {
       const a=Math.abs(this.x-this.inx)>this.ex&&this.movingWay===1;
@@ -1448,7 +1435,7 @@ function sendMyState() {
       .map((mb, index) => {
         if (!mb.am) return null;
         // 내가 밟고 있거나 복귀 중일 때만 서버에 위치 전송
-        if (!mb.standingOn && !mb.returning) return null;
+        if (!mb.standingOn) return null;
         return { index, x: mb.x, y: mb.y, returning: mb.returning ?? false };
       })
       .filter(Boolean);
