@@ -596,18 +596,16 @@ class MBlock {
       const d=(this.my>0&&this.y<this.iny&&this.movingWay===-1)||(this.my<0&&this.y>this.iny&&this.movingWay===-1);
       if (a||b||c||d) this.movingWay*=-1;
       this.x+=this.mx*this.movingWay; this.y+=this.my*this.movingWay;
+      if (this.frame<3) player.x+=this.mx*this.movingWay;
     }
     this.frame++;
   }
   check(player) {
     const {x1,y1,x2,y2,px1,px2,py1,py2}=overlap(this,player);
-    const wasStanding = this.standingOn;
     this.standingOn = false;
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
       const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
-      let min=Math.min(left,right,top,bottom);
-      // 이전 프레임에 이 블록 위에 서있었다면, top 판정을 우선시해 좌우 충돌과의 진동 방지
-      if (wasStanding && top >= 0 && top <= 6) min = top;
+      const min=Math.min(left,right,top,bottom);
       if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.touch=true; this.standingOn=true; } else { this.touch=false; }}
       if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
       if (min===right) { player.x=x2+player.width/2; player.dx=0; }
@@ -1156,15 +1154,14 @@ function updateGame() {
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
   // Moving block collision/riding (position calc is done in tickMoveblocks on 16ms tick)
   moveblocks.forEach(mb => {
+    if (!mb.am && mb.touch) {
+      // am=false: 이번 틱에 블록이 이동한 양만큼 플레이어도 먼저 이동 (check 이전에 적용)
+      player.x += mb.mx * mb.movingWay;
+      player.y += mb.my * mb.movingWay;
+    }
     mb.check(player);
     if (mb.am) {
       mb.move(player); // check() 직후 호출 → this.touch가 정확히 세팅된 상태
-    } else {
-      // am=false: 자동이동 드래그 (tickMoveblocks에서 이미 이동된 양만큼 플레이어도 동일 이동)
-      if (mb.touch || mb.standingOn) {
-        player.x += mb.mx * mb.movingWay;
-        player.y += mb.my * mb.movingWay;
-      }
     }
   });
 
