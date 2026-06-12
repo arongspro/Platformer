@@ -716,7 +716,7 @@ class Player {
       if (this.touch) { this.coframe = 0; if (this.jumped) this.jumped = false; }
       else { this.coframe++; }
 
-      if (keyPressed('jump') && this.jumpmotion <= 5) {
+      if (keyPressed('jump') && this.jumpmotion <= 5 && this.touch) {
         this.jumpmotion++;
         this.width  = 50 + this.jumpmotion * 2;
         this.height = 50 - this.jumpmotion;
@@ -725,7 +725,7 @@ class Player {
         this.cframe = 0;
       }
       if (!this.jumped && this.cframe < 20 && this.coframe < 20 && !keyPressed('jump')) {
-        this.dy = this.jumpmotion * 2;
+        this.dy = this.jumpmotion * 2.4;
         this.jumpmotion *= 0.8;
         this.cframe = 21;
         this.jumped = true;
