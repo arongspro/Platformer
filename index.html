@@ -579,50 +579,23 @@ class MBlock {
       const distFromOrigin = Math.abs(this.x-this.inx)+Math.abs(this.y-this.iny);
       const atEnd = Math.abs(this.x-this.inx)>=this.ex || Math.abs(this.y-this.iny)>=this.ey;
 
-      if (this.standingOn) {
-        // ── 내가 밟고 있는 블록: 로컬이 권위, 직접 이동 계산 ──
-        if (this.touchLinger === undefined) this.touchLinger = 0;
-        if (this.touch) this.touchLinger = 5;
-        else if (this.touchLinger > 0) this.touchLinger--;
-        if ((this.touch || this.touchLinger > 0) && !atEnd) {
-          this.returning = false;
-          this.x += this.mx; this.y += this.my;
-          player.x += this.mx; player.y += this.my;
-        }
-        if (distFromOrigin <= 1) this.returning = false;
-      } else {
-        // ── 내가 밟지 않는 am 블록: 서버에서 받은 targetX/Y로 보간 ──
-        if (this.touchLinger === undefined) this.touchLinger = 0;
-        if (this.touch) this.touchLinger = 5;
-        else if (this.touchLinger > 0) this.touchLinger--;
-        if (this.targetX !== undefined && this.targetY !== undefined) {
-          // 매 프레임 목표를 향해 lerp (빠른 수렴: 0.3)
-          const lerpSpeed = 0.3;
-          this.x += (this.targetX - this.x) * lerpSpeed;
-          this.y += (this.targetY - this.y) * lerpSpeed;
-          // 목표에 충분히 가까우면 snap
-          if (Math.abs(this.x - this.targetX) < 0.5) this.x = this.targetX;
-          if (Math.abs(this.y - this.targetY) < 0.5) this.y = this.targetY;
-        }
-        if (distFromOrigin <= 1) this.returning = false;
+      // 전진: 플레이어가 위에 있고(또는 막 떠난 직후 5프레임 유예) 끝 아님
+      if (this.touch) this.touchLinger = 5;
+      else if (this.touchLinger > 0) this.touchLinger--;
+      if ((this.touch || this.touchLinger > 0) && !atEnd) {
+        this.returning=false;
+        this.x+=this.mx; this.y+=this.my;
+        if (this.standingOn) { player.x+=this.mx; player.y+=this.my; }
       }
+      // 복귀: 서버가 am_blocks_patch로 위치를 보내줌 (150px 밖일 때만)
+      if (distFromOrigin <= 1) this.returning=false;
     } else {
-      // ── am=false 자동 왕복 블록 ──
       const a=Math.abs(this.x-this.inx)>this.ex&&this.movingWay===1;
       const b=Math.abs(this.y-this.iny)>this.ey&&this.movingWay===1;
       const c=(this.mx>0&&this.x<this.inx&&this.movingWay===-1)||(this.mx<0&&this.x>this.inx&&this.movingWay===-1);
       const d=(this.my>0&&this.y<this.iny&&this.movingWay===-1)||(this.my<0&&this.y>this.iny&&this.movingWay===-1);
       if (a||b||c||d) this.movingWay*=-1;
       this.x+=this.mx*this.movingWay; this.y+=this.my*this.movingWay;
-      // targetX/Y로 부드럽게 보정 (서버 드리프트 보정, 200ms 주기)
-      if (this.targetX !== undefined) {
-        const drift = Math.abs(this.x - this.targetX) + Math.abs(this.y - this.targetY);
-        if (drift > 2 && drift < 80) {
-          this.x += (this.targetX - this.x) * 0.08;
-          this.y += (this.targetY - this.y) * 0.08;
-        }
-      }
-      if (this.frame<3) player.x+=this.mx*this.movingWay;
     }
     this.frame++;
   }
@@ -632,11 +605,11 @@ class MBlock {
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
       const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
       const min=Math.min(left,right,top,bottom);
-      if (min===top)   { if(player.dy<=1){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.touch=true; this.standingOn=true; }}
+      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.touch=true; this.standingOn=true; } else { this.touch=false; }}
       if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
       if (min===right) { player.x=x2+player.width/2; player.dx=0; }
       if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
-    } else { this.touch=false; this.touchLinger = this.touchLinger || 0; }
+    } else { this.touch=false; }
   }
   allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
 }
@@ -1557,9 +1530,7 @@ function connectSocket() {
     document.getElementById('onlineCount').textContent = list.length;
   });
 
-  // Receive block state from server (200ms 주기)
-  // am=false: 서버 위치를 목표로 저장, 로컬에서 mx/my로 예측 시뮬레이션 중에 snap 보정
-  // am=true:  내가 안 밟는 블록은 목표 위치(targetX/Y)로 부드럽게 보간
+  // Receive block state from server
   let blockSynced = false;
   socket.on('blocks_update', positions => {
     if (!moveblocks) return;
@@ -1567,26 +1538,14 @@ function connectSocket() {
       const mb = moveblocks[i];
       if (!mb || pos === null) return;
       if (mb.am) {
-        // 내가 밟고 있으면 내 로컬이 권위
+        // 내가 밟고 있으면 무시, 아니면 서버 위치로 동기화
         if (mb.standingOn) return;
-        // 목표 위치 설정 → 매 프레임 보간으로 접근
-        mb.targetX = pos.x;
-        mb.targetY = pos.y;
+        mb.x = pos.x;
+        mb.y = pos.y;
         if (pos.returning !== undefined) mb.returning = pos.returning;
-        // 첫 동기화 또는 차이가 매우 클 때는 즉시 snap
-        if (!blockSynced || Math.abs(mb.x - pos.x) + Math.abs(mb.y - pos.y) > 200) {
-          mb.x = pos.x; mb.y = pos.y;
-        }
       } else {
-        // am=false: 서버 위치로 부드럽게 보정 (큰 차이만 snap)
-        const drift = Math.abs(mb.x - pos.x) + Math.abs(mb.y - pos.y);
-        if (!blockSynced || drift > 150) {
-          mb.x = pos.x; mb.y = pos.y;
-        } else {
-          // 목표 위치 설정 → 보간으로 접근 (로컬 시뮬레이션이 계속 돌면서 보정)
-          mb.targetX = pos.x;
-          mb.targetY = pos.y;
-        }
+        mb.x = pos.x;
+        mb.y = pos.y;
         mb.movingWay = pos.movingWay ?? mb.movingWay;
       }
     });
@@ -1595,8 +1554,7 @@ function connectSocket() {
 
   socket.on('disconnect', () => { otherPlayers = {}; });
 
-  // am=true 블록: 다른 플레이어가 밟아서 움직이는 위치를 50ms마다 수신
-  // → 목표 위치(targetX/Y)만 업데이트, 실제 이동은 매 프레임 보간으로 처리
+  // Receive am block positions from other clients or server return movement
   socket.on('am_blocks_patch', updates => {
     if (!moveblocks) return;
     for (const { index, x, y, returning } of updates) {
@@ -1604,13 +1562,9 @@ function connectSocket() {
       if (!mb || !mb.am) continue;
       // 내가 밟고 있는 블록은 내 로컬이 권위
       if (mb.standingOn) continue;
-      mb.targetX = x;
-      mb.targetY = y;
+      mb.x = x;
+      mb.y = y;
       if (returning !== undefined) mb.returning = returning;
-      // 처음 수신이거나 너무 멀면 즉시 snap
-      if (Math.abs(mb.x - x) + Math.abs(mb.y - y) > 200) {
-        mb.x = x; mb.y = y;
-      }
     }
   });
 }
