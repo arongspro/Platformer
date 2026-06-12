@@ -363,10 +363,10 @@ class Blocks {
       const effBottom = this.faceBottom ? bottom : INF;
       const min = Math.min(effTop, effLeft, effRight, effBottom);
       if (min===INF) return;
-      if (min===effTop)    { if (player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
-      if (min===effLeft)   { player.x=x1-player.width/2; player.dx=0; }
-      if (min===effRight)  { player.x=x2+player.width/2; player.dx=0; }
-      if (min===effBottom) { player.y=y2+player.height/2+1; player.dy*=-1; }
+      if (min===effTop)    { if (player.dy<=0){ player.y=y1-player.hitHeight/2+1; player.dy=0; player.touch=true; }}
+      if (min===effLeft)   { player.x=x1-player.hitWidth/2; player.dx=0; }
+      if (min===effRight)  { player.x=x2+player.hitWidth/2; player.dx=0; }
+      if (min===effBottom) { player.y=y2+player.hitHeight/2+1; player.dy*=-1; }
     }
   }
   allowed(p) { const sx=this.x-p.scrollx, sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
@@ -380,8 +380,8 @@ class Spike {
   }
   check(player, bblock, particles) {
     const x1=this.x+12.5, y1=this.y+12.5, x2=this.x+37.5, y2=this.y+37.5;
-    const px1=player.x-player.width/2, px2=player.x+player.width/2;
-    const py1=player.y-player.height/2, py2=player.y+player.height/2;
+    const px1=player.x-player.hitWidth/2, px2=player.x+player.hitWidth/2;
+    const py1=player.y-player.hitHeight/2, py2=player.y+player.hitHeight/2;
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2&&!player.died) {
       this.frame=0; player.died=true; this.died=true;
       player.deathCount = (player.deathCount || 0) + 1;
@@ -421,8 +421,8 @@ class Jump {
   }
   check(player, particles) {
     const x1=this.x, y1=this.y+40, x2=this.x+50, y2=this.y+50;
-    const px1=player.x-player.width/2, px2=player.x+player.width/2;
-    const py1=player.y-player.height/2, py2=player.y+player.height/2;
+    const px1=player.x-player.hitWidth/2, px2=player.x+player.hitWidth/2;
+    const py1=player.y-player.hitHeight/2, py2=player.y+player.hitHeight/2;
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
       player.dy=15;
       if (!this.springSnd) { playSound('spring'); this.springSnd=true; }
@@ -460,10 +460,10 @@ class IBlock {
       const effBottom = this.faceBottom ? bottom : INF;
       const min = Math.min(effTop, effLeft, effRight, effBottom);
       if (min===INF) return;
-      if (min===effTop)    { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.frame=0; } } else { this.frame++; }
-      if (min===effLeft)   { player.x=x1-player.width/2;  if(min!==effTop) player.dx=0; }
-      if (min===effRight)  { player.x=x2+player.width/2;  if(min!==effTop) player.dx=0; }
-      if (min===effBottom) { player.y=y2+player.height/2+1; player.dy*=-1; }
+      if (min===effTop)    { if(player.dy<=0){ player.y=y1-player.hitHeight/2+1; player.dy=0; player.touch=true; this.frame=0; } } else { this.frame++; }
+      if (min===effLeft)   { player.x=x1-player.hitWidth/2;  if(min!==effTop) player.dx=0; }
+      if (min===effRight)  { player.x=x2+player.hitWidth/2;  if(min!==effTop) player.dx=0; }
+      if (min===effBottom) { player.y=y2+player.hitHeight/2+1; player.dy*=-1; }
       if (this.frame<10) player.slip=this.slip;
     }
   }
@@ -495,10 +495,10 @@ class DBlock {
       this.de=true;
       const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
       const min=Math.min(left,right,top,bottom);
-      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
-      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
-      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
-      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+      if (min===top)   { if(player.dy<=0){ player.y=y1-player.hitHeight/2+1; player.dy=0; player.touch=true; }}
+      if (min===left)  { player.x=x1-player.hitWidth/2; player.dx=0; }
+      if (min===right) { player.x=x2+player.hitWidth/2; player.dx=0; }
+      if (min===bottom){ player.y=y2+player.hitHeight/2+1; player.dy*=-1; }
     }
     if (this.de&&this.alpha>0) { this.alpha-=0.02; this.tick++; }
     else if (!c&&this.tick>0)  { this.de=false; this.tick-=0.5; }
@@ -533,25 +533,25 @@ class BBlock {
     if (c) {
       const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
       const min=Math.min(left,right,top,bottom);
-      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
-      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
-      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
-      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+      if (min===top)   { if(player.dy<=0){ player.y=y1-player.hitHeight/2+1; player.dy=0; player.touch=true; }}
+      if (min===left)  { player.x=x1-player.hitWidth/2; player.dx=0; }
+      if (min===right) { player.x=x2+player.hitWidth/2; player.dx=0; }
+      if (min===bottom){ player.y=y2+player.hitHeight/2+1; player.dy*=-1; }
       if (!this.touch) this.on*=-1;
       this.touch=true;
     } else { this.touch=false; }
   }
   checkBlock(player) {
     const x1=this.bx,y1=this.by,x2=this.bx+50,y2=this.by+50;
-    const px1=player.x-player.width/2,px2=player.x+player.width/2;
-    const py1=player.y-player.height/2,py2=player.y+player.height/2;
+    const px1=player.x-player.hitWidth/2,px2=player.x+player.hitWidth/2;
+    const py1=player.y-player.hitHeight/2,py2=player.y+player.hitHeight/2;
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
       const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
       const min=Math.min(left,right,top,bottom);
-      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; }}
-      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
-      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
-      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+      if (min===top)   { if(player.dy<=0){ player.y=y1-player.hitHeight/2+1; player.dy=0; player.touch=true; }}
+      if (min===left)  { player.x=x1-player.hitWidth/2; player.dx=0; }
+      if (min===right) { player.x=x2+player.hitWidth/2; player.dx=0; }
+      if (min===bottom){ player.y=y2+player.hitHeight/2+1; player.dy*=-1; }
     }
   }
 }
@@ -606,10 +606,10 @@ class MBlock {
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
       const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
       const min=Math.min(left,right,top,bottom);
-      if (min===top)   { if(player.dy<=1){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.touch=true; this.standingOn=true; } else { this.touch=false; }}
-      if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
-      if (min===right) { player.x=x2+player.width/2; player.dx=0; }
-      if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
+      if (min===top)   { if(player.dy<=1){ player.y=y1-player.hitHeight/2+1; player.dy=0; player.touch=true; this.touch=true; this.standingOn=true; } else { this.touch=false; }}
+      if (min===left)  { player.x=x1-player.hitWidth/2; player.dx=0; }
+      if (min===right) { player.x=x2+player.hitWidth/2; player.dx=0; }
+      if (min===bottom){ player.y=y2+player.hitHeight/2+1; player.dy*=-1; }
     } else { this.touch=false; }
   }
   allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
@@ -649,8 +649,8 @@ class CheckPoint {
       return (player.x-this.x)**2+(player.y-this.y)**2<2500;
     } else {
       const x1=this.x+12.5,y1=this.y+12.5,x2=this.x+37.5,y2=this.y+37.5;
-      const px1=player.x-player.width/2,px2=player.x+player.width/2;
-      const py1=player.y-player.height/2,py2=player.y+player.height/2;
+      const px1=player.x-player.hitWidth/2,px2=player.x+player.hitWidth/2;
+      const py1=player.y-player.hitHeight/2,py2=player.y+player.hitHeight/2;
       return px2>x1&&px1<x2&&py2>y1&&py1<y2?1:0;
     }
   }
@@ -660,8 +660,8 @@ class CheckPoint {
 function overlap(obj, player) {
   return {
     x1: obj.x, y1: obj.y, x2: obj.x+50, y2: obj.y+50,
-    px1: player.x-player.width/2, px2: player.x+player.width/2,
-    py1: player.y-player.height/2, py2: player.y+player.height/2
+    px1: player.x-player.hitWidth/2, px2: player.x+player.hitWidth/2,
+    py1: player.y-player.hitHeight/2, py2: player.y+player.hitHeight/2
   };
 }
 
@@ -674,6 +674,7 @@ class Player {
     this.dy = 0; this.dx = 0;
     this.touch = true;
     this.width = 50; this.height = 50;
+    this.hitWidth = 50; this.hitHeight = 50; // 충돌 판정용 고정 크기 (점프 차징 squish와 분리)
     this.jumpmotion = 0;
     this.jumpCharge = 0;
     this.scrollx = 150;
@@ -681,6 +682,8 @@ class Player {
     this.slip = 0.8;
     this.cframe = 0; this.coframe = 0;
     this.jumped = false;
+    this.coyoteUsed = false;
+    this.prevJumpPressed = false;
     this.tpx = 320;
     this.died = false;
     this.finish = false;
@@ -712,12 +715,25 @@ class Player {
       if ((!keyPressed('right') && !keyPressed('left')) || (keyPressed('right') && keyPressed('left'))) {
         this.dx *= this.slip;
       }
-      if (this.x < 25) { this.dx = 0; this.x = 25; }
+      if (this.x - this.hitWidth/2 < 0) { this.dx = 0; this.x = this.hitWidth/2; }
 
-      if (this.touch) { this.coframe = 0; if (this.jumped) this.jumped = false; }
+      if (this.touch) { this.coframe = 0; this.coyoteUsed = false; if (this.jumped) this.jumped = false; }
       else { this.coframe++; }
 
-      if (keyPressed('jump') && this.jumpmotion <= 5 && this.touch) {
+      // 코요테 타임: 발판을 벗어난 직후 짧은 시간 동안은 공중에서도 점프 허용
+      const COYOTE_FRAMES = 8;
+      const COYOTE_JUMPMOTION = 2; // 코요테 점프의 기본 점프력 (충전 불가하므로 고정값 사용)
+      if (!this.touch && !this.jumped && !this.coyoteUsed && this.coframe <= COYOTE_FRAMES && keyPressed('jump') && !this.prevJumpPressed) {
+        this.coyoteUsed = true;
+        this.jumped = true;
+        this.jumpmotion = COYOTE_JUMPMOTION;
+        this.dy = this.jumpmotion * 2.4;
+        this.width  = 50 + this.jumpmotion * 2;
+        this.height = 50 - this.jumpmotion;
+        playSound('jump');
+      }
+
+      if (keyPressed('jump') && this.jumpmotion <= 5) {
         this.jumpCharge++;
         let inc;
         if (this.jumpCharge <= 3) inc = 1.0;        // 초반: 빠르게 차징 (적당한 점프감)
@@ -746,10 +762,14 @@ class Player {
 
       if (!this.touch) {
         this.dy -= 0.5;
-        this.jumpmotion *= 0.8;
-        this.width  = 50 + this.jumpmotion * 2;
-        this.height = 50 - this.jumpmotion;
+        if (!keyPressed('jump')) {
+          this.jumpmotion *= 0.8;
+          this.width  = 50 + this.jumpmotion * 2;
+          this.height = 50 - this.jumpmotion;
+        }
       }
+
+      this.prevJumpPressed = keyPressed('jump');
     }
   }
 }
