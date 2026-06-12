@@ -580,6 +580,7 @@ class MBlock {
       const atEnd = Math.abs(this.x-this.inx)>=this.ex || Math.abs(this.y-this.iny)>=this.ey;
 
       // 전진: 플레이어가 위에 있고(또는 막 떠난 직후 5프레임 유예) 끝 아님
+      if (this.touchLinger === undefined) this.touchLinger = 0;
       if (this.touch) this.touchLinger = 5;
       else if (this.touchLinger > 0) this.touchLinger--;
       if ((this.touch || this.touchLinger > 0) && !atEnd) {
@@ -606,11 +607,11 @@ class MBlock {
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
       const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
       const min=Math.min(left,right,top,bottom);
-      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.touch=true; this.standingOn=true; } else { this.touch=false; }}
+      if (min===top)   { if(player.dy<=1){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.touch=true; this.standingOn=true; }}
       if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
       if (min===right) { player.x=x2+player.width/2; player.dx=0; }
       if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
-    } else { this.touch=false; }
+    } else { this.touch=false; this.touchLinger = this.touchLinger || 0; }
   }
   allowed(p) { const sx=this.x-p.scrollx,sy=this.y-p.scrolly; return sx>-50&&sx<640&&sy>-50&&sy<640; }
 }
