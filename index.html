@@ -606,7 +606,7 @@ class MBlock {
     if (px2>x1&&px1<x2&&py2>y1&&py1<y2) {
       const left=px2-x1,right=x2-px1,top=py2-y1,bottom=y2-py1;
       const min=Math.min(left,right,top,bottom);
-      if (min===top)   { if(player.dy<=0){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.touch=true; this.standingOn=true; } else { this.touch=false; }}
+      if (min===top)   { if(player.dy<=1){ player.y=y1-player.height/2+1; player.dy=0; player.touch=true; this.touch=true; this.standingOn=true; } else { this.touch=false; }}
       if (min===left)  { player.x=x1-player.width/2; player.dx=0; }
       if (min===right) { player.x=x2+player.width/2; player.dx=0; }
       if (min===bottom){ player.y=y2+player.height/2+1; player.dy*=-1; }
@@ -1154,14 +1154,17 @@ function updateGame() {
   pads.forEach(p => { if (p.allowed(player)) p.check(player, particles); });
   // Moving block collision/riding (position calc is done in tickMoveblocks on 16ms tick)
   moveblocks.forEach(mb => {
-    if (!mb.am && mb.touch) {
-      // am=false: 이번 틱에 블록이 이동한 양만큼 플레이어도 먼저 이동 (check 이전에 적용)
-      player.x += mb.mx * mb.movingWay;
-      player.y += mb.my * mb.movingWay;
-    }
+    const prevX = mb.x;
+    const prevY = mb.y;
     mb.check(player);
     if (mb.am) {
       mb.move(player); // check() 직후 호출 → this.touch가 정확히 세팅된 상태
+    } else {
+      // am=false: 자동이동 드래그
+      if (mb.touch) {
+        player.x += mb.x - prevX;
+        player.y += mb.y - prevY;
+      }
     }
   });
 
