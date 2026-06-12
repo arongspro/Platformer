@@ -560,7 +560,7 @@ class MBlock {
   constructor(x,y,mx,my,ex,ey,playerFlag) {
     this.x=x; this.y=y; this.mx=mx; this.my=my;
     this.ex=ex; this.ey=ey; this.inx=x; this.iny=y;
-    this.touch=false; this.frame=0; this.am=playerFlag; this.movingWay=1; this.standingOn=false; this.moved=false; this.remoteControlled=false;
+    this.touch=false; this.frame=0; this.am=playerFlag; this.movingWay=1; this.standingOn=false; this.moved=false; this.remoteControlled=false; this.touchLinger=0;
   }
   draw(p) {
     const sx=this.x-p.scrollx, sy=this.y-p.scrolly;
@@ -1561,8 +1561,14 @@ function connectSocket() {
     for (const { index, x, y, returning } of updates) {
       const mb = moveblocks[index];
       if (!mb || !mb.am) continue;
-      // 내가 밟고 있는 블록은 내 로컬이 권위
       if (mb.standingOn) continue;
+      if (mb.touch) continue;
+
+      // 현재보다 원점에 가까운(뒤로 가는) 패치는 touchLinger 중에 무시
+      const myDist = Math.abs(mb.x - mb.inx) + Math.abs(mb.y - mb.iny);
+      const patchDist = Math.abs(x - mb.inx) + Math.abs(y - mb.iny);
+      if (patchDist < myDist && mb.touchLinger > 0) continue;
+
       mb.x = x;
       mb.y = y;
       if (returning !== undefined) mb.returning = returning;
