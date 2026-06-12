@@ -674,7 +674,8 @@ class Player {
     this.dy = 0; this.dx = 0;
     this.touch = true;
     this.width = 50; this.height = 50;
-    this.jumpmotion = 1;
+    this.jumpmotion = 0;
+    this.jumpCharge = 0;
     this.scrollx = 150;
     this.scrolly = mapRows * 50 - 200;
     this.slip = 0.8;
@@ -717,12 +718,20 @@ class Player {
       else { this.coframe++; }
 
       if (keyPressed('jump') && this.jumpmotion <= 5 && this.touch) {
-        this.jumpmotion++;
+        this.jumpCharge++;
+        let inc;
+        if (this.jumpCharge <= 3) inc = 1.0;        // 초반: 빠르게 차징 (적당한 점프감)
+        else if (this.jumpCharge <= 18) inc = 0.3;  // 중반: 천천히 차징
+        else inc = 0.4;                             // 후반: 다시 빠르게 차징
+        this.jumpmotion = Math.min(this.jumpmotion + inc, 5);
         this.width  = 50 + this.jumpmotion * 2;
         this.height = 50 - this.jumpmotion;
       }
       if ((!keyPressed('jump') && this.jumpmotion > 0) || this.jumpmotion >= 5) {
         this.cframe = 0;
+      }
+      if (!keyPressed('jump')) {
+        this.jumpCharge = 0;
       }
       if (!this.jumped && this.cframe < 20 && this.coframe < 20 && !keyPressed('jump')) {
         this.dy = this.jumpmotion * 2.4;
