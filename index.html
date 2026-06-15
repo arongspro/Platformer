@@ -728,8 +728,10 @@ class Player {
         this.jumped = true;
         this.jumpmotion = COYOTE_JUMPMOTION;
         this.dy = this.jumpmotion * 2.4;
-        this.width  = 50 + this.jumpmotion * 2;
-        this.height = 50 - this.jumpmotion;
+        this.width     = 50 + this.jumpmotion * 2;
+        this.height    = 50 - this.jumpmotion;
+        this.hitWidth  = this.width;
+        this.hitHeight = this.height;
         playSound('jump');
       }
 
@@ -740,8 +742,10 @@ class Player {
         else if (this.jumpCharge <= 18) inc = 0.3;  // 중반: 천천히 차징
         else inc = 0.4;                             // 후반: 다시 빠르게 차징
         this.jumpmotion = Math.min(this.jumpmotion + inc, 5);
-        this.width  = 50 + this.jumpmotion * 2;
-        this.height = 50 - this.jumpmotion;
+        this.width     = 50 + this.jumpmotion * 2;
+        this.height    = 50 - this.jumpmotion;
+        this.hitWidth  = this.width;
+        this.hitHeight = this.height;
       }
       if ((!keyPressed('jump') && this.jumpmotion > 0) || this.jumpmotion >= 5) {
         this.cframe = 0;
@@ -764,8 +768,10 @@ class Player {
         this.dy -= 0.5;
         if (!keyPressed('jump')) {
           this.jumpmotion *= 0.8;
-          this.width  = 50 + this.jumpmotion * 2;
-          this.height = 50 - this.jumpmotion;
+          this.width     = 50 + this.jumpmotion * 2;
+          this.height    = 50 - this.jumpmotion;
+          this.hitWidth  = this.width;
+          this.hitHeight = this.height;
         }
       }
 
@@ -1312,6 +1318,17 @@ function drawGame() {
   const cpx = mmX + player.cpx * scaleX;
   const cpy = mmY + player.cpy * scaleY;
   ctx.fillRect(cpx-2, cpy-2, 4, 4);
+  // Other players on minimap
+  for (const data of Object.values(otherPlayers)) {
+    if (!data || data.gameState === 'menu' || data.died) continue;
+    const ox = mmX + data.x * scaleX;
+    const oy = mmY + data.y * scaleY;
+    // Clamp inside minimap bounds
+    const cx = Math.max(mmX+2, Math.min(mmX+mmW-2, ox));
+    const cy = Math.max(mmY+2, Math.min(mmY+mmH-2, oy));
+    ctx.fillStyle = '#ff9d3b';
+    ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI*2); ctx.fill();
+  }
   // Player position
   ctx.fillStyle = '#00e5ff';
   const px2 = mmX + player.x * scaleX;
